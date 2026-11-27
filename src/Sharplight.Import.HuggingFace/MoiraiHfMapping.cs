@@ -42,12 +42,42 @@ internal sealed class MoiraiHfMapping : IHfArchitectureMapping
 
         if (root.TryGetProperty("distr_output", out var distr) && distr.ValueKind == JsonValueKind.Object && root.TryGetProperty("patch_sizes", out _))
         {
-            return ModelType;
+            return HasCentroids(config.Directory) ? MoiraiMoeHfMapping.ModelType : ModelType;
         }
 
         return root.TryGetProperty("quantile_levels", out _) && root.TryGetProperty("num_predict_token", out _) && root.TryGetProperty("patch_size", out _)
             ? Moirai2HfMapping.ModelType
             : null;
+    }
+
+    /// <summary>
+    /// Whether the checkpoint in <paramref name="directory"/> is Moirai-MoE: its config has the same keys as Moirai 1.x, so the safetensors header is
+    /// checked for the routing centroids (<c>encoder.centroid</c>).
+    /// </summary>
+    internal static bool HasCentroids(string directory)
+    {
+        string path = Path.Combine(directory, "model.safetensors");
+        if (directory.Length == 0 || !File.Exists(path))
+        {
+            return false;
+        }
+
+        using var stream = File.OpenRead(path);
+        Span<byte> length = stackalloc byte[8];
+        if (stream.Read(length) != 8)
+        {
+            return false;
+        }
+
+        long size = BitConverter.ToInt64(length);
+        if (size <= 0 || size > 100_000_000)
+        {
+            return false;
+        }
+
+        var header = new byte[size];
+        stream.ReadExactly(header);
+        return header.AsSpan().IndexOf("\"encoder.centroid\""u8) >= 0;
     }
 
     /// <inheritdoc/>
@@ -126,10 +156,46 @@ internal sealed class MoiraiHfMapping : IHfArchitectureMapping
             throw new InvalidDataException("moirai: the checkpoint has no in_proj.weight / in_proj.bias.");
         }
 
+        int hidden = checked((int)inWeight.Shape[1].Fixed);
+        AddPerSize(collector, "in_proj", inWeight, inBias, sizes, hidden, sizes.Max(), p => p);
+        AddParamProj(collector, heads, components!, sizes, hidden);
+        return collector.Weights;
+    }
+
+    /// <summary>
+    /// Splits a multi-size layer (<c>MultiInSizeLinear</c> / <c>FeatLinear</c>: weight [sizes, d, max in], bias [sizes, d]) into <c>{name}.p{p}.weight</c>
+    /// [d, in(p)] (the first in(p) columns, the ones the module's mask keeps) and <c>{name}.p{p}.bias</c> [d] per patch size.
+    /// </summary>
+    internal static void AddPerSize(HfWeightCollector collector, string name, WeightInfo weight, WeightInfo bias, int[] sizes, int hidden, int maxIn, Func<int, int> inputs)
+    {
+        for (int s = 0; s < sizes.Length; s++)
+        {
+            int index = s;
+            int p = sizes[s];
+            int width = inputs(p);
+            collector.Add(WeightInfo.Derived($"{name}.p{p}.weight", DataType.F32, new Shape(hidden, width), () =>
+            {
+                var w = HfTransforms.DecodeF32(weight);   // [sizes, hidden, maxIn]
+                var dst = new float[hidden * width];
+                for (int o = 0; o < hidden; o++)
+                {
+                    Array.Copy(w, ((long)index * hidden * maxIn) + ((long)o * maxIn), dst, o * width, width);
+                }
+
+                return HfTransforms.EncodeF32(dst);
+            }));
+            collector.Add(WeightInfo.Derived($"{name}.p{p}.bias", DataType.F32, new Shape(hidden), () =>
+                HfTransforms.EncodeF32(HfTransforms.DecodeF32(bias)[(index * hidden)..((index + 1) * hidden)])));
+        }
+    }
+
+    /// <summary>The fused distribution head <c>param_proj.p{p}.{weight,bias}</c> of every patch size from the module's heads (names below <c>param_proj.proj.</c>).</summary>
+    internal static void AddParamProj(HfWeightCollector collector, Dictionary<string, WeightInfo> heads, List<(string Config, string[] Parameters)> components, int[] sizes, int hidden)
+    {
         // The heads in row order: the mixture logits, then each component's parameters (component c's leaves are named components.{c}.{parameter}).
         var leaves = new List<(WeightInfo Weight, WeightInfo Bias, int Width)>
         {
-            (Head(heads, "weights_logits.weight"), Head(heads, "weights_logits.bias"), components!.Count),
+            (Head(heads, "weights_logits.weight"), Head(heads, "weights_logits.bias"), components.Count),
         };
         for (int k = 0; k < components.Count; k++)
         {
@@ -140,38 +206,22 @@ internal sealed class MoiraiHfMapping : IHfArchitectureMapping
         }
 
         int maxSize = sizes.Max();
-        int hidden = checked((int)inWeight.Shape[1].Fixed);
+        int columns = leaves.Sum(l => l.Width);
         for (int s = 0; s < sizes.Length; s++)
         {
             int index = s;
             int p = sizes[s];
-            collector.Add(WeightInfo.Derived($"in_proj.p{p}.weight", DataType.F32, new Shape(hidden, p), () =>
-            {
-                var w = HfTransforms.DecodeF32(inWeight);   // [sizes, hidden, maxSize]
-                var dst = new float[hidden * p];
-                for (int o = 0; o < hidden; o++)
-                {
-                    Array.Copy(w, ((long)index * hidden * maxSize) + ((long)o * maxSize), dst, o * p, p);
-                }
-
-                return HfTransforms.EncodeF32(dst);
-            }));
-            collector.Add(WeightInfo.Derived($"in_proj.p{p}.bias", DataType.F32, new Shape(hidden), () =>
-                HfTransforms.EncodeF32(HfTransforms.DecodeF32(inBias)[(index * hidden)..((index + 1) * hidden)])));
-            int columns = leaves.Sum(l => l.Width);
             collector.Add(WeightInfo.Derived($"param_proj.p{p}.weight", DataType.F32, new Shape(p * columns, hidden), () => FusedHead(leaves, index, p, maxSize, hidden, bias: false)));
             collector.Add(WeightInfo.Derived($"param_proj.p{p}.bias", DataType.F32, new Shape(p * columns), () => FusedHead(leaves, index, p, maxSize, hidden, bias: true)));
         }
-
-        return collector.Weights;
     }
 
-    private static WeightInfo Head(Dictionary<string, WeightInfo> heads, string name)
+    internal static WeightInfo Head(Dictionary<string, WeightInfo> heads, string name)
         => heads.TryGetValue(name, out var w) ? w : throw new InvalidDataException($"moirai: the checkpoint has no param_proj.proj.{name}.");
 
     // Row (t, column) of the fused head of patch size p (index s): leaf l with width W (W columns per step) reads its row c · maxSize + t, masked to
     // zero weight from W · p on, as MultiOutSizeLinear does.
-    private static byte[] FusedHead(List<(WeightInfo Weight, WeightInfo Bias, int Width)> leaves, int s, int p, int maxSize, int hidden, bool bias)
+    internal static byte[] FusedHead(List<(WeightInfo Weight, WeightInfo Bias, int Width)> leaves, int s, int p, int maxSize, int hidden, bool bias)
     {
         int columns = leaves.Sum(l => l.Width);
         int stride = bias ? 1 : hidden;
@@ -204,11 +254,11 @@ internal sealed class MoiraiHfMapping : IHfArchitectureMapping
         return HfTransforms.EncodeF32(dst);
     }
 
-    private static int[] PatchSizes(HfConfig c)
+    internal static int[] PatchSizes(HfConfig c)
         => c.Root.TryGetProperty("patch_sizes", out var sizes) && sizes.ValueKind == JsonValueKind.Array ? [.. sizes.EnumerateArray().Select(x => x.GetInt32())] : [8, 16, 32, 64, 128];
 
     // The mixture components of distr_output (uni2ts.distribution.*Output classes) with their canonical names (see MoiraiAdapter) and parameter leaves.
-    private static bool TryComponents(HfConfig c, out List<(string Config, string[] Parameters)>? components, out string? error)
+    internal static bool TryComponents(HfConfig c, out List<(string Config, string[] Parameters)>? components, out string? error)
     {
         components = null;
         error = null;

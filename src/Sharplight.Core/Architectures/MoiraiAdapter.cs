@@ -28,7 +28,7 @@ public sealed class MoiraiAdapter : IModelAdapter
     public string Name => "Moirai forecaster";
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> Architectures => [MoiraiParameters.Architecture, MoiraiParameters.Architecture2];
+    public IReadOnlyList<string> Architectures => [MoiraiParameters.Architecture, MoiraiParameters.Architecture2, MoiraiParameters.ArchitectureMoe];
 
     /// <inheritdoc/>
     public ModelDefinition Build(ModelSourceSet sources, AdapterOptions options)
@@ -55,6 +55,27 @@ public sealed class MoiraiAdapter : IModelAdapter
                     (TimeSeriesGraphs.PredictionLengthKey, p.PredictionLength), (TimeSeriesGraphs.PatchSizeKey, p.PatchSize),
                     (TimeSeriesGraphs.PredictTokensKey, p.PredictTokens), (TimeSeriesGraphs.MaxHorizonKey, p.MaxHorizon),
                     (TimeSeriesGraphs.QuantilesKey, string.Join(',', p.Quantiles.Select(q => q.ToString(CultureInfo.InvariantCulture))))),
+            };
+        }
+        else if (p.IsMoe)
+        {
+            graphs[TimeSeriesGraphs.MixtureDecoderGraph] = MoiraiGraph.BuildMixtureDecoder(p, src.Weight);
+            int sequence = Patches(p.ContextLength, p.PatchSize) + Patches(p.MaxHorizon, p.PatchSize);
+            component = new ModelComponent
+            {
+                Role = ModelComponentRoles.Decoder,
+                Graphs = [TimeSeriesGraphs.MixtureDecoderGraph],
+                WeightPrefixes = [""],
+                SymbolBounds = new Dictionary<string, long>
+                {
+                    // MaxPathsPerPass sample paths packed in one pass.
+                    [TimeSeriesGraphs.PatchSymbol] = (long)MixtureDecoderForecasterClient.MaxPathsPerPass * sequence,
+                    [TimeSeriesGraphs.ReadSymbol] = MixtureDecoderForecasterClient.MaxPathsPerPass,
+                },
+                Config = ComponentConfig.Of((TimeSeriesGraphs.FormKey, TimeSeriesGraphs.MixtureDecoderForm), (TimeSeriesGraphs.ContextLengthKey, p.ContextLength),
+                    (TimeSeriesGraphs.PredictionLengthKey, p.PredictionLength), (TimeSeriesGraphs.PatchSizeKey, p.PatchSize),
+                    (TimeSeriesGraphs.ComponentsKey, p.Components), (TimeSeriesGraphs.MaxHorizonKey, p.MaxHorizon),
+                    (TimeSeriesGraphs.SampleCountKey, p.SampleCount)),
             };
         }
         else

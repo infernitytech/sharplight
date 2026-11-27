@@ -319,7 +319,7 @@ internal static class ModelInspector
             && ((root.TryGetProperty("distr_output", out _) && root.TryGetProperty("patch_sizes", out _))
                 || (root.TryGetProperty("quantile_levels", out _) && root.TryGetProperty("num_predict_token", out _))))
         {
-            return ModelKinds.TimeSeriesForecasting;   // Moirai 1.x (mixture head over several patch sizes), Moirai 2.0 (quantile decoder): uni2ts module kwargs, no model type
+            return ModelKinds.TimeSeriesForecasting;   // Moirai 1.x (mixture head over several patch sizes), Moirai-MoE (same keys), Moirai 2.0 (quantile decoder): uni2ts module kwargs, no model type
         }
 
         if (modelType is not null && s_speechRecognitionModelTypes.Contains(modelType))

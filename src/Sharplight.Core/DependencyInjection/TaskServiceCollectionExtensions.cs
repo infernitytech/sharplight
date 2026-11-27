@@ -68,6 +68,7 @@ public static class TaskServiceCollectionExtensions
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, TokenForecasterFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, PatchDecoderForecasterFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, MaskedEncoderForecasterFactory>());
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, MixtureDecoderForecasterFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, QuantileDecoderForecasterFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, GroupEncoderForecasterFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, ImageSegmenterFactory>());

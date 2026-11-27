@@ -21,11 +21,13 @@ internal static class HfArchitectureMappings
         Register(new CogVlmHfMapping());
         Register(new NemotronHHfMapping());
         Register(new GraniteHybridHfMapping());
+        Register(new ZayaHfMapping());
         Register(new FalconH1HfMapping());
         Register(new InklingHfMapping());
         Register(new Inkling2HfMapping());
         Register(new Mamba2HfMapping());
         Register(new Lfm2HfMapping());
+        Register(new Lfm2VlHfMapping());
         Register(new MiniMaxHfMapping());
         Register(new MambaHfMapping());
         Register(new LatentDecoderHfMapping());
@@ -60,6 +62,7 @@ internal static class HfArchitectureMappings
         Register(new TimesFm25HfMapping());
         Register(new MoiraiHfMapping());
         Register(new Moirai2HfMapping());
+        Register(new MoiraiMoeHfMapping());
         Register(new DacHfMapping());
         Register(new MimiHfMapping());
         Register(new Qwen3TtsTokenizerHfMapping());

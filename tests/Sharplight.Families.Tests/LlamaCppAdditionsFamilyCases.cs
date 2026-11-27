@@ -17,9 +17,13 @@ internal static class LlamaCppAdditionsFamilyCases
         101963, 64974, 103280, 15925, 105556, 9700, 9700, 9700];
 
     // Hunyuan v4 Flash (tools/mk_tiny_hy_v4_flash.py, no transformers class): greedy ids of llama.cpp HEAD a07831a (tools/llamacpp_greedy.c) on the
-    // f32 GGUF its converter writes from the checkpoint, up to the tiny tokenizer's end of text (id 0, the 20th); smallest top-2 margin 0.062. 8 indexer heads: with fewer, pools often score exactly 0
-    // (every head's dot negative), and llama.cpp's top-k breaks such ties in no defined order (the smallest pick margin is now 1.4%).
+    // f32 GGUF its converter writes from the checkpoint, up to the tiny tokenizer's end of text (id 0, the 20th); smallest top-2 margin 0.062.
+    // 8 indexer heads: with fewer, pools often score exactly 0 (every head's dot negative), and llama.cpp's top-k breaks such ties in no
+    // defined order (the smallest pick margin is now 1.4%).
     private static readonly int[] HyV4FlashIds = [793, 48, 335, 991, 340, 772, 162, 899, 51, 988, 131, 773, 523, 262, 177, 831, 513, 756, 899];
+
+    private static readonly int[] Zaya1Ids = [125430, 125430, 112308, 138022, 154165, 97758, 60857, 19136, 111506, 128030, 180860, 106083, 171838, 186001,
+        126831, 193772, 33430, 112308, 247982, 243323, 176748, 116330, 94579, 112308];
 
     /// <summary>The cases, appended to the case list of <see cref="FamilyGenerationTests"/>.</summary>
     public static readonly Case[] All =
@@ -35,5 +39,18 @@ internal static class LlamaCppAdditionsFamilyCases
         // The checkpoint itself (no transformers class: its reference_logits.json holds llama.cpp's prompt logits of the GGUF).
         new("tiny-random-hy-v4-flash HF (hy_v4_flash, llama.cpp reference)", "hf/tiny-random-hy-v4-flash", Prompt, "ids", HyV4FlashIds, "", F32KvCache: true),
         new("tiny-random-hy-v4-flash f32 GGUF (hy_v4_flash, llama.cpp)", "gguf/tiny-random-hy-v4-flash-f32.gguf", Prompt, "ids", HyV4FlashIds, "", F32KvCache: true),
+
+        // ZAYA1 (zaya, transformers): CCA attention (depthwise + grouped q/k convolutions, residual mean-of-heads paths, L2-normalized q/k with a
+        // key temperature, delayed values), the MLP router with a router state carried across layers and a skip expert, per-channel residual
+        // scales and an input scale (tools/mk_tiny_zaya1.py).
+        // Smallest greedy margin 0.087; the router's top-1 has near-ties that f16 KV rounding flips on the CPU, so the caches stay f32.
+        // transformers resets the skip expert's class bias to -1 on load (as stored in ZAYA1-8B), so the skip expert never wins here.
+        new("tiny-random-zaya1 HF (zaya, transformers)", "hf/tiny-random-zaya1", Prompt, "ids", Zaya1Ids, "", F32KvCache: true),
+        new("tiny-random-zaya1 f32 GGUF (zaya1, llama.cpp)", "gguf/tiny-random-zaya1-f32.gguf", Prompt, "ids", Zaya1Ids, "", F32KvCache: true),
+        // The same with the skip expert's class bias 0 (TINY_SKIP_BIAS=0): it wins for part of the tokens and zeroes their MoE output. Only
+        // llama.cpp honours the stored bias, so the reference is the text of llama.cpp b12798's llama-simple (which, unlike llama-completion,
+        // accepts the trailing <|im_end|> the tokenizer adds); it leaves the plain model's text after 12 tokens.
+        new("tiny-random-zaya1-skip f32 GGUF (zaya1 skip expert, llama.cpp)", "gguf/tiny-random-zaya1-skip-f32.gguf", Prompt, "text", [],
+            " Herzog Herzogक्रमा सलाहकारстинreservedutzer اللہ Recommendation GLC看一下migration unt ব্যবসার fearedotusの関係 ร่วมSheikhSheikh coloridoக்குற прикла<unused5720>", Tokens: 24, F32KvCache: true),
     ];
 }

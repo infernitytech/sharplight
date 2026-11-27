@@ -645,7 +645,8 @@ series and across the series of the request at each step; 21 quantile levels, up
 `forecast` graph has a symbolic series axis; long horizons batch the per-level context copies too), the other models forecast the series one after another.
 
 HTTP: `POST /v1/timeseries/forecast` (Sharplight.AspNetCore `TimeSeriesApi`; no OpenAI convention exists) takes `{ "model", "series": [[...], ...], "horizon",
-"quantile_levels", "samples", "temperature", "top_k", "seed", "patch_size" }` (missing values `null`, a flat array is one series) and returns
+"quantile_levels", "samples", "temperature", "top_k", "seed", "patch_size" }` (missing values `null`, a flat array is one series; `"patch_size": "auto"`
+lets Moirai 1.x pick the patch size by validation loss, `TimeSeriesForecastOptions.AutoPatchSize`) and returns
 `{ "object": "timeseries.forecast", "model", "horizon", "quantile_levels", "forecasts": [{ "index", "mean", "quantiles": [per level, every step] }], "usage": { "series", "observations" } }`.
 The series go through `ForecastBatchAsync`; with `covariates` (`[{ "name", "history", "future" }]`) or `"joint": true` they are the targets of one
 `TimeSeriesForecastRequest`. Register forecasters with `services.AddSharplightTimeSeriesForecaster(forecaster, name)` (limits in `TimeSeriesModels`), or serve the

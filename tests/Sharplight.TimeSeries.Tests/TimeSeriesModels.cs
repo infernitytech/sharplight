@@ -48,8 +48,10 @@ internal static class TimeSeriesModels
                 [.. c.GetProperty("history").EnumerateArray().Select(v => v.ValueKind == JsonValueKind.Null ? float.NaN : v.GetSingle())],
                 c.GetProperty("horizon").GetInt32(),
                 [.. c.GetProperty("levels").EnumerateArray().Select(v => v.GetSingle())],
-                [.. c.GetProperty("quantiles").EnumerateArray().Select(row => row.EnumerateArray().Select(v => v.GetSingle()).ToArray())],
-                [.. c.GetProperty("mean").EnumerateArray().Select(v => v.GetSingle())]));
+                c.TryGetProperty("quantiles", out var quantiles)   // absent in distribution-only references (Moirai's -auto.json)
+                    ? [.. quantiles.EnumerateArray().Select(row => row.EnumerateArray().Select(v => v.GetSingle()).ToArray())]
+                    : [],
+                c.TryGetProperty("mean", out var mean) ? [.. mean.EnumerateArray().Select(v => v.GetSingle())] : []));
         }
 
         return cases;

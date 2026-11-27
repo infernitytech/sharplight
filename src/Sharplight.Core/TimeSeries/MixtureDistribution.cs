@@ -131,6 +131,109 @@ internal sealed class MixtureDistribution
         }
     }
 
+    /// <summary>
+    /// The log density of the mixture with the mapped parameters at <paramref name="value"/> (in the scaled space), as uni2ts' <c>Mixture.log_prob</c>:
+    /// the log-sum-exp over the components of the log weight plus the component's log density, a component outside its support (negative binomial: below 0,
+    /// log-normal: not above 0) contributing nothing.
+    /// </summary>
+    public double LogProb(ReadOnlySpan<double> mapped, double value)
+    {
+        Span<double> terms = stackalloc double[_kinds.Length];
+        double max = double.NegativeInfinity;
+        for (int c = 0; c < _kinds.Length; c++)
+        {
+            // A component of weight 0 contributes nothing (as exp(log 0 + finite) in torch).
+            double component = mapped[c] > 0 ? ComponentLogProb(c, mapped, value) : double.NegativeInfinity;
+            terms[c] = double.IsNegativeInfinity(component) ? component : Math.Log(mapped[c]) + component;
+            max = Math.Max(max, terms[c]);
+        }
+
+        if (double.IsNegativeInfinity(max) || double.IsNaN(max))
+        {
+            return max;
+        }
+
+        double sum = 0;
+        foreach (double term in terms)
+        {
+            sum += Math.Exp(term - max);
+        }
+
+        return max + Math.Log(sum);
+    }
+
+    // torch.distributions' log_prob of component c (uni2ts' NegativeBinomial for that kind), -inf outside the support.
+    private double ComponentLogProb(int c, ReadOnlySpan<double> mapped, double x)
+    {
+        int o = _offsets[c];
+        switch (_kinds[c])
+        {
+            case "student_t":
+            {
+                double df = mapped[o];
+                double scale = mapped[o + 2];
+                double y = (x - mapped[o + 1]) / scale;
+                double z = Math.Log(scale) + (0.5 * Math.Log(df)) + (0.5 * Math.Log(Math.PI)) + LogGamma(0.5 * df) - LogGamma(0.5 * (df + 1));
+                return (-0.5 * (df + 1) * double.LogP1(y * y / df)) - z;
+            }
+
+            case "normal":
+                return NormalLogProb(x, mapped[o], mapped[o + 1]);
+            case "normal_fixed":
+                return NormalLogProb(x, mapped[o], _fixedScales[c]);
+            case "negative_binomial":
+            {
+                if (!(x >= 0))
+                {
+                    return double.NegativeInfinity;
+                }
+
+                double r = mapped[o];
+                double logits = mapped[o + 1];
+                double unnormalized = (r * LogSigmoid(-logits)) + (LogSigmoid(logits) * x);
+                double normalization = LogGamma(1 + x) + LogGamma(r) - LogGamma(1 + x + r) + Math.Log(r + x);
+                return unnormalized - normalization;
+            }
+
+            default:
+                return x > 0 ? NormalLogProb(Math.Log(x), mapped[o], mapped[o + 1]) - Math.Log(x) : double.NegativeInfinity;
+        }
+    }
+
+    private static double NormalLogProb(double x, double loc, double scale)
+    {
+        double d = x - loc;
+        return (-(d * d) / (2 * scale * scale)) - Math.Log(scale) - (0.5 * Math.Log(2 * Math.PI));
+    }
+
+    // torch.nn.functional.logsigmoid: min(x, 0) - log1p(exp(-|x|)).
+    private static double LogSigmoid(double x) => Math.Min(x, 0) - double.LogP1(Math.Exp(-Math.Abs(x)));
+
+    private static readonly double[] s_lanczos =
+    [
+        0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313, -176.61502916214059, 12.507343278686905,
+        -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7,
+    ];
+
+    /// <summary>log |Γ(x)| (Lanczos, g = 7, with the reflection formula below 0.5); about 1e-15 relative.</summary>
+    internal static double LogGamma(double x)
+    {
+        if (x < 0.5)
+        {
+            return Math.Log(Math.PI / Math.Abs(Math.Sin(Math.PI * x))) - LogGamma(1 - x);
+        }
+
+        x -= 1;
+        double a = s_lanczos[0];
+        double t = x + 7.5;
+        for (int i = 1; i < s_lanczos.Length; i++)
+        {
+            a += s_lanczos[i] / (x + i);
+        }
+
+        return (0.5 * Math.Log(2 * Math.PI)) + ((x + 0.5) * Math.Log(t)) - t + Math.Log(a);
+    }
+
     // torch.nn.functional.softplus (beta 1, threshold 20).
     private static double Softplus(double x) => x > 20 ? x : double.LogP1(Math.Exp(x));
 }

@@ -412,7 +412,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 
 | Arch | Models | llama.cpp blocks | Status | Missing in Sharplight | HF type | Test assets |
 |---|---|---|---|---|---|---|
-| `lfm2` | LFM2/LFM2.5 350M-2.6B | gated short-conv (k=3) + GQA attn, QK-norm | **supported** | - | lfm2 | gguf/LFM2.5-1.2B-Instruct, hf/LFM2.5-1.2B-Instruct, hf/tiny-random-lfm2 |
+| `lfm2` | LFM2/LFM2.5 350M-2.6B | gated short-conv (k=3) + GQA attn, QK-norm | **supported** | - | lfm2, lfm2_vl | gguf/LFM2.5-1.2B-Instruct, hf/LFM2.5-1.2B-Instruct, hf/tiny-random-lfm2 |
 | `lfm2moe` | LFM2-8B-A1B, LFM2.5-8B-A1B | lfm2 + MoE sigmoid bias | **supported** | - | lfm2_moe | gguf/LFM2.5-8B-A1B, hf/tiny-random-lfm2-moe |
 | `lfm3` | LFM3-1.7B, LFM3-VL/Omni (text part) | gated conv + sliding/full attention (own rope bases, partial rope via `rope_freqs`), QK-norm, per-head sigmoid gate, sandwich norms | **supported** (GGUF: tiny random and real LFM3-1.7B Q8_0 vs llama.cpp 8ca5a80 greedy ids on CPU and Vulkan; b11177 predates lfm3. The non-causal "d1" decision variant (bidirectional full-attention layers, no cache) is not supported; no transformers class. HF `lfm3` (round 11): tiny checkpoint vs the remote code and llama.cpp 8ca5a80, LFM3-1.7B bf16 vs transformers) | - | lfm3 | gguf/LFM3-1.7B, gguf/tiny-random-lfm3-f32, hf/tiny-random-lfm3 |
 | `inkling` | Inkling, Inkling-Small (Thinking Machines; text decoder) | rope-less GQA attention, sliding-window layers with their own kv head count, q/k norms with scale 1/head_dim, residual short convolutions of k / v / attention output / MLP output, query-conditioned relative position bias, log-floor query temperature, sigmoid MoE whose shared experts are scored by the router, embedding norm, padded vocabulary | **supported** (text decoder on the hybrid stack: `HybridAttention` relative bias (CachedAttention `relative_bias`, CPU and Vulkan), residual short convolutions and per-layer head counts, `MoeBlock` shared-expert sinks; HF `inkling_mm_model` in the published `model.llm.*` layout and GGUF from unsloth's fork; tiny model vs transformers and the fork's llama.cpp (same 24 ids), CPU and Vulkan, batched decoding matches single-sequence decoding; every Inkling-Small GGUF and the Inkling checkpoint pass the check and import from their headers, none runs here (the smallest file is 75 GB). The vision / audio towers and the MTP layers are not imported. Inkling 2 Mini (`inkling2_loop`) runs on the `block_residual_decoder` adapter since bring-up round 3 (section 25); `inkling2` (Small) is not mapped, see section 10) | - | inkling_mm_model | hf/tiny-random-inkling, gguf/tiny-random-inkling-f32.gguf |
@@ -616,8 +616,20 @@ down and up; embeddings 6e-7 relative RMS, logits, greedy and the processor's ex
 torchvision processor of LFM2-VL-450M (`SiglipVlPreprocessTests`: same grids and view sizes for six images up to 10 tiles, pixels within two 8-bit
 steps; mmproj converted at llama.cpp HEAD, which writes the resize and tiling keys), and LFM2-VL-450M (Q8_0 and F16 with the published F16 mmproj):
 60 greedy tokens identical to llama-mtmd-cli on the test image and on a 1600×1100 enlargement (6 tiles + thumbnail, 1806 prompt rows), CPU and
-GPU. Not done: `lfm3vl` (LFM3-VL: a different tower with gated depthwise convolution layers, 2-D rotary attention and RMS norms; #109)
-and the Hugging Face import of `Lfm2VlForConditionalGeneration` (GGUF + mmproj only; #110).
+GPU. Not done: `lfm3vl` (LFM3-VL: a different tower with gated depthwise convolution layers, 2-D rotary attention and RMS norms; #109).
+
+**lfm2_vl safetensors (#110, 2026-11-27).** The Hugging Face importer reads `Lfm2VlForConditionalGeneration` checkpoints (`model_type`
+`lfm2_vl`, `Lfm2VlHfMapping`) into the same canonical `hybrid` model with tower: the text model through `Lfm2HfMapping` (`model.language_model.*`),
+the SigLIP 2 tower `model.vision_tower.vision_model.*` (the patch embedding, a Linear over (row, column, channel) patches, permuted to the
+canonical (channel, row, column) kernel like llama.cpp's converter; the position table widened to f32 for the dense antialiased resample; the
+unused pooling head dropped), the projector `model.multi_modal_projector.{layer_norm, linear_1, linear_2}` → `vision.merger.{merged_norm, up, down}`,
+and the tiling / preprocessing keys from `preprocessor_config.json` (config.json's copies as fallback): `tile_size`, `min_tiles` / `max_tiles`
+(`do_image_splitting` false → no tiles), `max_pixels_tolerance`, `use_thumbnail`, `min_image_tokens` / `max_image_tokens` → min/max pixels (the
+model's own bounds, 64..256 for the Hub checkpoints), `resample` (3 = bicubic), mean / std; `use_image_special_tokens` false is rejected. Verified:
+`Tiny_qwen_vl_image_prompt_matches_transformers` with hf/tiny-random-lfm2-vl (embeddings 6e-7 relative RMS, logits, greedy, expanded prompt; CPU
+and Vulkan), `SiglipVlPreprocessTests` `hf:LFM2-VL-450M` (the six preprocessing cases from the safetensors config) and
+`Lfm2VlCheckpointTests` (LFM2-VL-450M bf16 safetensors vs the F16 GGUF + HEAD mmproj on a 1024×640 image, 2 tiles + thumbnail: embeddings 4e-6
+relative RMS, the same 24 greedy tokens, CPU).
 
 mmproj assets downloaded: Qwen3.8-Flash-Next-UD-Q4_K_XL (F16), Qwen3.6-35B-A3B (F16), Qwen3-VL-2B-Instruct (F16), gemma-3-4b-it (f16), Ministral-3-3B-Instruct-2512 (BF16), LFM2-VL-450M (F16). Priority: Qwen3-VL (DeepStack) with Wave 1b, then SigLIP/Gemma-3 and Pixtral.
 
@@ -3620,7 +3632,7 @@ References for this round come from a CPU build of that HEAD (`cmake -B build -D
 | inkling2_loop | 29b52d398 (2026-11-20) | supported since section 25 | - |
 | inkling2 | 5c008e000 (2026-11-15) | partial: mapping and per-expert output scales | #85 |
 | hy_v4_flash | c94333133 (2026-11-25) | missing | #83 |
-| zaya1 | 98d67c8d5 (2026-11-18) | missing | #82 |
+| zaya1 | 98d67c8d5 (2026-11-18) | supported, verified on ZAYA1-8B | #82 |
 | raon1 | 5a09582d8 (2026-11-25) | missing | #84 |
 | kokoro, zonos3, tiny-voca | 307e3f155, 7ae3c6b23, 3574df84b | TTS, speech workstream | #16 |
 | moshi | c622f623f (2026-11-21) | speech-to-speech | #21 |
@@ -3644,7 +3656,35 @@ pre-tokenizer `domyn-edge` is Qwen2's.
   degenerate into repetitions in every runtime, transformers included ("The capital of France is" → " is is is is mus mus ..."); the
   catalog note says to use the chat template.
 
-Not done this round: the architectures of the table above other than Domyn Edge (issues listed), the `domyn-small` pre-tokenizer (escaped
+**ZAYA1** (`zaya1`, transformers `zaya` / `ZayaForCausalLM`, Zyphra/ZAYA1-8B: 40 layers, hidden 2048, 8 query and 2 key/value heads of 128,
+16 experts of 2048 plus a skip expert, top-1). It maps onto the canonical `hybrid` stack (`ZayaHfMapping`, `Zaya1GgufMapping`) with two new
+pieces: `CcaAttention`, compressed convolutional attention (the raw q/k rows go through a depthwise and then a grouped causal convolution of
+kernel 2, the grouped one as an expert-indexed product with one [head, 2·head] matrix per group; residual paths q_res = (q + k)/2 and
+k_res = mean of q_res over the query heads of a key head; q/k L2-normalized to sqrt(head_dim), keys times a per-head temperature, rope on half
+of each head; values = [current half, previous row's delayed half]) and `SkipExpertRouter` (router projection + bias, plus the previous layer's
+router rows times a scale, RMS norm, two GELU layers, softmax over the experts and the skip class; top-1 among the real experts by the biased
+probabilities, zero output when the skip class scores higher). Residuals use per-channel scales and a folded bias, the input rows
+`(x + b) · s`. The three one-row windows of a CCA layer (raw q/k, depthwise output without its bias, delayed values) are `CausalConv1d`
+states, so batching, snapshots and speculative rollback cover them like any convolution state. The skip expert never wins in the published
+model: its class bias is -1 (transformers even resets it to -1 on load) and probabilities lie in [0, 1].
+
+- Tiny checkpoint (`tools/mk_tiny_zaya1.py`, 6 layers, 4 experts, router MLP weights with std 1 for decisive top-1 choices; smallest greedy
+  margin 0.087): prompt logits and 24 greedy ids identical to transformers 5.24 on CPU, Vulkan and CUDA, HF and the converted f32 GGUF;
+  llama.cpp b12798's `llama-simple` gives the same text from that GGUF. KV caches are kept in f32 for these cases: f16 rounding flips a
+  router near-tie on the CPU. A variant with the skip expert's class bias 0 (`TINY_SKIP_BIAS=0`, GGUF only, since only llama.cpp honours the
+  stored bias) matches llama.cpp's text, which leaves the plain model's after 12 tokens. Batched decoding equals single-sequence decoding
+  (`HubSweepFamilyServingTests`), rolled-back and snapshotted states equal plain decoding (`RecurrentRollbackTests`, `StepStateSnapshotTests`).
+  The tokenizer's post-processor appends `<|im_end|>` to every plain encode (transformers and Sharplight do; the converted GGUF says
+  `add_eos_token`), which `llama-completion` refuses; chat prompts are unaffected (the template starts with `<bos>`, nothing is added).
+- Zyphra/ZAYA1-8B (67d34da): the chat answer to "Explain in a short paragraph why the sky is blue." (template defaults, thinking on, greedy,
+  160 tokens). Float32 transformers has two 0.003-logit near ties, at token 36 (" how" / " the") and token 98 (" light" / " and"). The BF16
+  GGUF on the CPU gives exactly llama.cpp b12798's (CPU) tokens for about 140 tokens (both take " how", then " and"), the BF16 safetensors and
+  GGUF on Vulkan and CUDA are identical to them up to the first tie and take " the" there. Q8_0 (own conversion with `llama-quantize`):
+  Vulkan identical to llama.cpp's Q8_0 for 31 tokens, then " about" where llama.cpp takes " to" (0.12 apart in float32 transformers).
+  The community GGUFs (Abiray/ZAYA1-8B-GGUF, JusteLeo/ZAYA1-8B-GGUF, May 2026) were written by a pre-mainline fork (`general.architecture`
+  `zaya`, 80 blocks) and do not load (#120).
+
+Not done this round: the architectures of the table above other than Domyn Edge and ZAYA1 (issues listed), the `domyn-small` pre-tokenizer (escaped
 whitespace, llama.cpp `LLAMA_VOCAB_PRE_TYPE_DOMYN_SMALL`; no Domyn Small checkpoint was run) and the mmproj projectors of section 7 (#86, #87).
 
 
@@ -3719,13 +3759,13 @@ deviation of the constant lands just above the 1e-6 floor, which collapses every
 keep the model's own spread of about 0.15 % around it (the test bounds that case separately). Not done: TimesFM 1.0 (sinusoidal position embedding, package
 checkpoint), the 2.0 frequency as a request option, covariates (`forecast_with_covariates`), batching several series in one pass.
 
-## 29. Time series: Moirai 1.1 and 2.0 (2026-11-27, issue #90)
+## 29. Time series: Moirai 1.1, 2.0 and Moirai-MoE (2026-11-27, issues #90, #108)
 
 Kind `time-series` like section 27; models under `~/models/timeseries/<name>` (Hub downloads of `Salesforce/<name>`: config.json and model.safetensors),
 references from `tools/timeseries-reference/reference_moirai.py` (uni2ts at GitHub main of 2026-11-27, torch 2.15 CPU, f32; the cases of section 28);
 tests `MoiraiTests` in `tests/Sharplight.TimeSeries.Tests`. Moirai is not a transformers model: config.json holds the uni2ts module's keyword arguments
-without a `model_type`, so the importer recognizes the two forms by their keys (`distr_output` + `patch_sizes`: `moirai`; `quantile_levels` +
-`num_predict_token`: `moirai2`). Licence CC BY-NC 4.0 (the catalog entries carry a notice).
+without a `model_type`, so the importer recognizes the forms by their keys (`distr_output` + `patch_sizes`: `moirai`, or `moirai_moe` when the
+safetensors header holds `encoder.centroid`; `quantile_levels` + `num_predict_token`: `moirai2`). Licence CC BY-NC 4.0 (the catalog entries carry a notice).
 
 | model | architecture | params | CPU | GPU (Vulkan, RADV iGPU) | `.slm` |
 |---|---|---|---|---|---|
@@ -3733,6 +3773,10 @@ without a `model_type`, so the importer recognizes the two forms by their keys (
 | moirai-1.1-R-small | `moirai` | 14M | mixture parameters within 3e-6 (relative, at least 1); sampled quantiles statistically equal | parameters within 2e-6 | yes |
 | moirai-1.1-R-base | `moirai` | 91M | mixture parameters within 2e-5 | not run | not run (same importer path as small) |
 | moirai-1.1-R-large | `moirai` | 311M | mixture parameters within 1.2e-5 | not run | not run (same importer path as small) |
+| moirai-1.1-R-small, `patch_size="auto"` | `moirai` | | validation losses within 1e-5, the same patch size in all 8 cases (16, 32, 64, 128 chosen), then that size's parameters within 3e-6 | same | |
+| moirai-1.1-R-base, `patch_size="auto"` | `moirai` | | validation losses within 2e-6, the same patch size in all 8 cases | not run | |
+| moirai-moe-1.0-R-small | `moirai_moe` | 117M (11M active) | mixture parameters of every forecast patch within 4e-6 along a fixed fed path; sampled quantiles statistically equal | parameters within 3e-6 | yes |
+| moirai-moe-1.0-R-base | `moirai_moe` | 935M (86M active) | mixture parameters within 8e-6 | not run | not run (same importer path as small) |
 
 Both share uni2ts' encoder: pre-norm layers with RMS norms (eps 1e-5), per-head query / key RMS norms, rotary time positions on the first half of every
 head (GPT-J pairs, base 10000), a SiLU-gated feed-forward block and a final RMS norm. The binary variate attention bias is not in the graph: for one
@@ -3754,13 +3798,32 @@ values are 0 with a false observation flag, which is what uni2ts' imputation lea
   gamma-Poisson draw, log-normal), 100 paths by default (`SampleCount`), seeded with `Seed`; quantiles are the samples' empirical quantiles, the mean
   their mean. Patch size 32 by default (the notebook's), any of the five per request (`TimeSeriesForecastOptions.PatchSize`); context 1000, the whole
   horizon (up to `maxHorizon`, 2048) in one pass, `PredictionLength` 64 is only the default horizon.
+  `PatchSize = TimeSeriesForecastOptions.AutoPatchSize` (0; HTTP `"patch_size": "auto"`) is uni2ts' `patch_size="auto"`: every patch size forecasts
+  the last `horizon` steps of the history's last 1000 + horizon steps from the steps before them (one extra pass per size), the host scores the
+  held-out observed values with the mixture's mean negative log density (`MixtureDistribution.LogProb`: torch's Student-t, normal, log-normal and uni2ts'
+  negative-binomial densities, a component outside its support contributing nothing, the affine scaler's log-Jacobian; `SampleNLLLoss`), and the
+  size with the lowest loss (the first of equal ones) forecasts. Horizon patches that are pure padding (a history shorter than the horizon) are left
+  out, as uni2ts keeps them apart as another sample.
+- **Moirai-MoE** (`TimeSeriesGraphs.MixtureDecoderGraph`, the mixture-decoder form, `MixtureDecoderForecasterClient`): decoder-only at patch size 16.
+  The input is `feat_proj(silu(in_proj(x))) + res_proj(x)` of the scaled patch (no mask embedding), attention is causal in time through the spans
+  (leading patches without observations share time id 0 and see each other), and every layer's feed-forward block is a mixture of 32 SiLU-gated
+  experts routed by `torch.cdist` to the layer's centroids (`encoder.centroid`, cast to f32): the 2 experts at the largest Euclidean distance, mixed
+  by the softmax of the two distances (uni2ts' `MoEFeedForward`; the graph computes sqrt(max(|x|² + |c|² − 2 x·c, 0)) as cdist's matrix-product form
+  does, then `TopK` and `MoeBlock` with the given route). The last context row's mixture (the Moirai 1.x head of size 16) is the next patch:
+  `MoiraiMoEForecast` samples it per path, writes the draw into the path's context as observed values (so the next pass re-scales with them) and
+  predicts the next patch, so every path runs its own pass per forecast patch; up to 100 paths run packed in one pass (`MaxPathsPerPass`, one causal
+  block each), the first patch comes from one shared pass. Context 1000 (as Moirai 1.1), up to 2048 steps, 100 paths by default. Parity: per
+  forecast patch the scaler and the 16 steps' mixture parameters after the context plus a fixed fed path (the reference's Student-t locations), and
+  the sampled forecast in probability space (8000 seeded paths against 4000 torch paths, every reference quantile at level l between the forecast's
+  quantiles at l ± 0.04).
 
 Verification of the sampling model: the mixture parameters of every step are compared with uni2ts' distribution object; the sampled forecast (20000
 seeded paths) is compared in probability space with the quantiles of 20000 torch samples: every reference quantile at level l lies between the
 forecast's quantiles at l ± 0.025 (about five standard errors), which holds for all 6 748 checks of the eight cases (torch's RNG is not reproduced, and
-level-space bounds fail in heavy tails, where torch's own seeds differ by up to a quarter of the forecast range on the constant series). Not done: uni2ts' `patch_size="auto"` (the patch
-size with the lowest validation loss on the history's last window), multivariate series and covariates (the variate ids and the variate bias; the multivariate API of
-section 30 exists, Moirai's default `ForecastAsync(TimeSeriesForecastRequest)` forecasts every target on its own), Moirai-MoE, batching several series in one pass.
+level-space bounds fail in heavy tails, where torch's own seeds differ by up to a quarter of the forecast range on the constant series). Not done: multivariate series and
+covariates (the variate ids and the variate bias; the multivariate API of section 30 exists, Moirai's default `ForecastAsync(TimeSeriesForecastRequest)` forecasts every
+target on its own), batching several series in one pass, a KV cache for Moirai-MoE's patch-by-patch decoding (every pass re-scales the path, so the
+reference re-runs the whole sequence too).
 
 ## 30. Time series: Chronos-2, multivariate series and covariates (2026-11-27, issue #91)
 

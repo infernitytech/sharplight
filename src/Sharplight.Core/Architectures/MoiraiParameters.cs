@@ -12,6 +12,18 @@ internal sealed record MoiraiParameters
     /// <summary>The canonical architecture id of Moirai 2.0 (<c>Salesforce/moirai-2.0-R-small</c>).</summary>
     public const string Architecture2 = "moirai2";
 
+    /// <summary>The canonical architecture id of Moirai-MoE (<c>Salesforce/moirai-moe-1.0-R-*</c>).</summary>
+    public const string ArchitectureMoe = "moirai_moe";
+
+    /// <summary>Whether this is Moirai-MoE (the decoder-only mixture forecaster with a mixture-of-experts feed-forward block).</summary>
+    public bool IsMoe { get; init; }
+
+    /// <summary>The routed experts per layer (Moirai-MoE).</summary>
+    public int ExpertCount { get; init; }
+
+    /// <summary>The experts every patch passes through (Moirai-MoE).</summary>
+    public int ExpertsUsed { get; init; }
+
     /// <summary>Whether this is Moirai 2.0 (the causal quantile decoder) rather than the masked encoder of Moirai 1.x.</summary>
     public required bool Is2 { get; init; }
 
@@ -77,19 +89,23 @@ internal sealed record MoiraiParameters
     public static MoiraiParameters From(ModelSource source)
     {
         bool is2 = source.Architecture == Architecture2;
+        bool moe = source.Architecture == ArchitectureMoe;
         int hidden = source.Arch<int>("hidden_size");
-        int patch = source.Arch("patch_size", is2 ? 16 : 32);
+        int patch = source.Arch("patch_size", is2 || moe ? 16 : 32);
         int tokens = source.Arch("predict_tokens", 1);
         return new MoiraiParameters
         {
             Is2 = is2,
+            IsMoe = moe,
+            ExpertCount = source.Arch("expert_count", moe ? 32 : 0),
+            ExpertsUsed = source.Arch("expert_used_count", moe ? 2 : 0),
             HiddenSize = hidden,
             IntermediateSize = source.Arch("intermediate_size", hidden * 4),
             LayerCount = source.Arch<int>("layer_count"),
             HeadCount = source.Arch("attention.head_count", hidden / 64),
             NormEps = source.Arch("norm_eps", 1e-5f),
             RopeBase = source.Arch("rope.base", 10000f),
-            PatchSizes = is2 ? [patch] : [.. source.Arch("patch_sizes", "8,16,32,64,128").Split(',').Select(int.Parse)],
+            PatchSizes = is2 ? [patch] : moe ? [.. source.Arch("patch_sizes", "16").Split(',').Select(int.Parse)] : [.. source.Arch("patch_sizes", "8,16,32,64,128").Split(',').Select(int.Parse)],
             PatchSize = patch,
             Quantiles = TimeSeriesQuantiles.Parse(source.Arch("quantiles", "0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9")),
             PredictTokens = tokens,

@@ -43,6 +43,9 @@ prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` 
   Moirai (#90): `Salesforce/moirai-2.0-R-small`, `moirai-1.1-R-{small,base,large}` (config.json + model.safetensors), references from
   `reference_moirai.py` (uni2ts installed `--no-deps` from GitHub plus its imports, jax included for jaxtyping's PyTree; fedora-blackwell: `~/venvs/uni2ts`).
   Moirai 1.1 samples a mixture: parity is on the distribution parameters, sampled quantiles are compared in probability space.
+  #108: `reference_moirai.py --auto <moirai-1.x>` writes `refs/<name>-auto.json` (uni2ts' `patch_size="auto"` validation losses); Moirai-MoE
+  (`moirai-moe-1.0-R-{small,base}`, arch `moirai_moe`, detected by `encoder.centroid` in the safetensors header) references take ~15 min for the
+  4000 torch sample paths (`MOIRAI_MOE_SAMPLES=20` for a quick parameter-only run). Spans inputs are (first row, row count), not (start, end).
   Chronos-2 (#91): `amazon/chronos-2`, references from `reference_chronos2.py` (chronos-forecasting >= 2.0; fedora-blackwell: `~/venvs/chronos2`);
   multivariate requests and covariates go through `ITimeSeriesForecaster.ForecastAsync(TimeSeriesForecastRequest)` (default implementation for univariate models).
   HTTP (#92): `POST /v1/timeseries/forecast` (`TimeSeriesApi`, Sharplight.Serving.Tests `TimeSeriesApiTests` / `TimeSeriesRealTests`); independent series go through
@@ -53,7 +56,10 @@ prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` 
   (references: `hf_greedy_reference.py`); architectures llama.cpp added after the 8ca5a80 pin go in `LlamaCppAdditionsFamilyCases.cs`
   and docs/model-support.md section 26. A CPU-only build of llama.cpp HEAD (`cmake -B build -DGGML_CUDA=OFF`, target
   `llama-completion`) takes a few minutes and is the reference for architectures the pin lacks; fedora-blackwell has one in
-  `~/scratch/llama.cpp-up` (#22).
+  `~/scratch/llama.cpp-up` (#22). `llama-completion` refuses GGUFs whose tokenizer adds EOS (ZAYA1: `GGML_ASSERT(!add_eos)`, and a prompt
+  ending in an EOG token stops at once); `llama-simple -m X -n N "prompt"` tokenizes like transformers (BOS and EOS added) and is the reference
+  there, `--override-kv tokenizer.ggml.add_eos_token=bool:false` makes `llama-completion` usable for chat prompts. ZAYA1 tiny models come from
+  `tools/mk_tiny_zaya1.py` (#82; transformers resets the skip expert's class bias to -1 on load).
 - Vision towers (mmproj): `ClipGgufMapping` maps each `clip.projector_type` onto the canonical `VisionParameters` keys that
   `VisionTowerGraph` / `VisionPreprocessor` / `Qwen35Multimodal` interpret; a new projector is usually a table entry plus a few keys.
   Tiny VL checkpoints are compared with transformers in `TinyQwenVlImageTests` (references written by the tools scripts named in
@@ -64,6 +70,8 @@ prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` 
   every caller of a graph with that input must bind `A`. Towers whose views differ in size
   (LFM2-VL tiles + thumbnail) go through `VisionPreprocessor.PatchifyViews`; the `hybrid` adapter (LFM2) takes a tower like `decoder`.
   `siglip_vl_reference.py` for LFM2-VL needs torchvision in the venv (`uv pip install torchvision` matching the torch build).
+  LFM2-VL safetensors (`lfm2_vl`, #110) import into the same canonical tower as the mmproj; a learned position table resampled with
+  dense weights (`bilinear_antialias`) must be imported as f32 (the resample is a MatMul with the table as activation; bf16 fails on the CPU).
 - Sharplight.Video.Tests (BundledFfmpegTests) fails, by design, without the bundled FFmpeg libraries in
   `native/ffmpeg/out/<rid>/` (gitignored, so needed once per checkout). Fastest route for linux-x64:
   `multiclaude artifact get builds/sharplight-native-ffmpeg-9.0.2-linux-x64.tar.gz native/ffmpeg/out -x`
