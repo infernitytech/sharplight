@@ -170,9 +170,9 @@ XChunk load_xchunk(uint8_t* x, uint ch)
 float dot_chunk(WChunk w, XChunk x, uint ch)
 {
 #ifdef MQ_FMA_CHAIN
-    // Row-invariant compiles: the sum as the explicit operations the driver makes of the plain expression in single-row
-    // kernels (NVIDIA: the scaled int dots as mul + fma, the two min terms joined before they are subtracted), fixed with
-    // `precise` so that kernels for more activation rows, or with K split over more subgroups, cannot contract it otherwise.
+    // SPIR-V compiles (plain and row-invariant alike, #102): the sum as explicit operations (the scaled int dots as mul + fma,
+    // the two min terms joined before they are subtracted), fixed with `precise` so that kernels for more activation rows,
+    // or with K split over more subgroups, cannot contract it otherwise.
     precise float m = fma(w.mhi, x.dhi.y, w.mlo * x.dlo.y);
     precise float s = fma(w.dhi * x.dhi.x, float(dot16(w.hi, x.hi)), (w.dlo * x.dlo.x) * float(dot16(w.lo, x.lo)));
     return s - m;
@@ -230,9 +230,9 @@ float dot_chunk(WChunk w, XChunk x, uint ch)
 {
     float4 i = float4(float(dot16(w.q0, x.q0)), float(dot16(w.q1, x.q1)), float(dot16(w.q2, x.q2)), float(dot16(w.q3, x.q3)));
 #ifdef MQ_FMA_CHAIN
-    // Row-invariant compiles: dot() as the mul + fma chain the driver makes of it in single-row kernels.
-    float4 s = w.s * x.d;
-    float t = s.x * i.x;
+    // SPIR-V compiles: dot() as an explicit mul + fma chain, fixed with `precise` so that no variant contracts it otherwise.
+    precise float4 s = w.s * x.d;
+    precise float t = s.x * i.x;
     t = fma(s.y, i.y, t);
     t = fma(s.z, i.z, t);
     return fma(s.w, i.w, t);

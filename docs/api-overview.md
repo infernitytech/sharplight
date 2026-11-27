@@ -186,7 +186,7 @@ of an `.slm` package) into a `TaskModel`. What an application calls is a **task 
 | `music-generation` | `IMusicGenerator` | `GenerateAsync(MusicGenerationRequest)`, `GenerateCodesAsync` | `GenerateStreamingAsync` → `AudioGenerationUpdate` (code frames, audio pieces) | `MusicGenerationOptions` (guidance, sampling, seed); `Defaults` → `MusicGenerationDefaults` | `AudioGenerationResult`, `CodecCodes` |
 | `text-embedding` | `ITextEmbedder` | `EmbedAsync(texts)`, `EmbedTokensAsync` | - | `TextEmbeddingOptions` (prompt, dimensions, truncation) | `EmbeddingResult` |
 | `text-reranking` | `ITextReranker` | `RerankAsync(query, documents)` | - | `RerankOptions` (instruction, truncation) | `RerankResult` |
-| `time-series` | `ITimeSeriesForecaster` | `ForecastAsync(history)` (one univariate series, NaN = missing) | - | `TimeSeriesForecastOptions` (horizon, quantile levels; samples, temperature, top-k, seed for sampling models) | `TimeSeriesForecast` (per quantile level the forecast of every step, `Mean`) |
+| `time-series` | `ITimeSeriesForecaster` | `ForecastAsync(history)` (one univariate series, NaN = missing), `ForecastBatchAsync(histories)` | - | `TimeSeriesForecastOptions` (horizon, quantile levels; samples, temperature, top-k, seed for sampling models) | `TimeSeriesForecast` (per quantile level the forecast of every step, `Mean`) |
 
 Conventions shared by all task clients: each is registered with `services.Add<Client>(o => ...)` (or `AddTaskClient<TClient>`), every
 method is `...Async` and takes a `CancellationToken` last; per-request options are immutable records (derive variants with `with`) whose
@@ -641,6 +641,16 @@ Chronos-2 (`chronos2`, `group_encoder` graph) forecasts several related series j
 covariates (`TimeSeriesCovariate`: past-only, or known into the future with their values over the horizon), and every layer attends along time within each
 series and across the series of the request at each step; 21 quantile levels, up to 1024 steps per pass, context 8192. Models without covariate support
 (`SupportsCovariates` false) forecast the targets of a request one by one and reject covariates. `TimeSeriesTable` reads CSV, semicolon- or tab-separated text into a time column and numeric columns.
+`ForecastBatchAsync(histories)` forecasts many independent series (any lengths) with shared options: Chronos-Bolt runs up to 64 contexts per model pass (its
+`forecast` graph has a symbolic series axis; long horizons batch the per-level context copies too), the other models forecast the series one after another.
+
+HTTP: `POST /v1/timeseries/forecast` (Sharplight.AspNetCore `TimeSeriesApi`; no OpenAI convention exists) takes `{ "model", "series": [[...], ...], "horizon",
+"quantile_levels", "samples", "temperature", "top_k", "seed", "patch_size" }` (missing values `null`, a flat array is one series) and returns
+`{ "object": "timeseries.forecast", "model", "horizon", "quantile_levels", "forecasts": [{ "index", "mean", "quantiles": [per level, every step] }], "usage": { "series", "observations" } }`.
+The series go through `ForecastBatchAsync`; with `covariates` (`[{ "name", "history", "future" }]`) or `"joint": true` they are the targets of one
+`TimeSeriesForecastRequest`. Register forecasters with `services.AddSharplightTimeSeriesForecaster(forecaster, name)` (limits in `TimeSeriesModels`), or serve the
+host's task models (`SharplightServerOptions.ServeHostModels`; `sharplight serve --model bolt=PATH,task=time-series` turns it on); `MapSharplightServer()` maps the
+endpoint (`SharplightEndpointOptions.TimeSeries`), `MapSharplightTimeSeries()` maps it alone.
 
 ```csharp
 using var forecaster = provider.GetRequiredService<TaskClientProvider>().Create<ITimeSeriesForecaster>(model);

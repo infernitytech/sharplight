@@ -43,11 +43,13 @@ internal static class T5TextGraphBuilder
 
     /// <summary>
     /// The encoder layers and the final norm over embedded rows <paramref name="x"/> [<see cref="T5TextHyperParameters.ContextLength"/>, hidden]
-    /// (token embeddings, or the patch embeddings of a time-series encoder).
+    /// (token embeddings, or the patch embeddings of a time-series encoder), or over a batch of sequences [batch (symbolic), rows, hidden] that attend
+    /// within themselves.
     /// </summary>
     /// <param name="b">The graph builder.</param>
     /// <param name="x">The embedded rows.</param>
-    /// <param name="keyMask">An additive key bias [1, 1, rows] (0 for keys that take part, a large negative score for masked ones), or <see langword="null"/>.</param>
+    /// <param name="keyMask">An additive key bias [1, 1, rows] (0 for keys that take part, a large negative score for masked ones; [batch, 1, 1, rows] for a
+    /// batch), or <see langword="null"/>.</param>
     /// <param name="hp">The encoder hyper-parameters (<see cref="T5TextHyperParameters.ContextLength"/>: the rows).</param>
     /// <param name="prefix">Canonical weight prefix of the encoder.</param>
     public static Value Encode(GraphBuilder b, Value x, Value? keyMask, T5TextHyperParameters hp, string prefix)
@@ -107,6 +109,11 @@ internal static class T5TextGraphBuilder
     private static Value Attention(GraphBuilder b, Value q, Value k, Value v, Value? bias, T5TextHyperParameters hp)
     {
         int rows = hp.ContextLength;
+        if (q.Rank == 3)
+        {
+            return BatchAttention(b, q, k, v, bias, hp);
+        }
+
         Value Heads(Value x) => b.Contiguous(b.Permute(b.Reshape(x, rows, hp.HeadCount, hp.HeadDim), 1, 0, 2));
         var scores = b.Emit1("BatchMatMul", [Heads(q), Heads(k)], Attributes.From(("trans_b", true)));
         if (bias is not null)
@@ -117,6 +124,22 @@ internal static class T5TextGraphBuilder
         var probabilities = b.Emit1("Softmax", [scores]);
         var attended = b.Emit1("BatchMatMul", [probabilities, Heads(v)]);
         return b.Reshape(b.Contiguous(b.Permute(attended, 1, 0, 2)), rows, hp.HeadCount * hp.HeadDim);
+    }
+
+    /// <summary><see cref="Attention"/> over a batch of sequences [batch, rows, heads · head dim]; the bias broadcasts to [batch, heads, rows, rows].</summary>
+    private static Value BatchAttention(GraphBuilder b, Value q, Value k, Value v, Value? bias, T5TextHyperParameters hp)
+    {
+        int rows = hp.ContextLength;
+        Value Heads(Value x) => b.Contiguous(b.Permute(b.Reshape(x, 0, rows, hp.HeadCount, hp.HeadDim), 0, 2, 1, 3));
+        var scores = b.Emit1("BatchMatMul", [Heads(q), Heads(k)], Attributes.From(("trans_b", true)));
+        if (bias is not null)
+        {
+            scores = b.Add(scores, bias);
+        }
+
+        var probabilities = b.Emit1("Softmax", [scores]);
+        var attended = b.Emit1("BatchMatMul", [probabilities, Heads(v)]);
+        return b.Reshape(b.Contiguous(b.Permute(attended, 0, 2, 1, 3)), 0, rows, hp.HeadCount * hp.HeadDim);
     }
 
     /// <summary>

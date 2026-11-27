@@ -55,7 +55,7 @@ public sealed class SharplightServerOptions
 
     /// <summary>
     /// Serve the host's task models (speech recognition on <c>/v1/audio/transcriptions</c>, speech synthesis on <c>/v1/audio/speech</c>,
-    /// image generation on <c>/v1/images/generations</c>) and its embedding and reranking models, looked up in the host per request by
+    /// image generation on <c>/v1/images/generations</c>, time-series forecasting on <c>/v1/timeseries/forecast</c>) and its embedding and reranking models, looked up in the host per request by
     /// the <c>model</c> field. The endpoints are mapped whether or not such a model is registered yet, so models loaded after the
     /// server started are reachable at once (an application that loads and unloads models while serving). Default off: the endpoints
     /// exist only for models registered when they are mapped.

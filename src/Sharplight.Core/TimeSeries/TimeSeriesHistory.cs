@@ -7,20 +7,45 @@ internal static class TimeSeriesHistory
     /// <exception cref="ArgumentException">The history is empty, all missing or holds an infinite value.</exception>
     public static void Validate(ReadOnlySpan<float> history)
     {
+        if (Problem(history) is { } problem)
+        {
+            throw new ArgumentException(problem, nameof(history));
+        }
+    }
+
+    // Why a history cannot be forecast, or null.
+    private static string? Problem(ReadOnlySpan<float> history)
+    {
         bool observed = false;
         foreach (float value in history)
         {
             if (float.IsInfinity(value))
             {
-                throw new ArgumentException("The history holds an infinite value.", nameof(history));
+                return "The history holds an infinite value.";
             }
 
             observed |= !float.IsNaN(value);
         }
 
-        if (!observed)
+        return observed ? null : "The history has no observed value.";
+    }
+
+    /// <summary>Rejects a batch of univariate histories that is empty or holds an invalid history (see <see cref="Validate(ReadOnlySpan{float})"/>).</summary>
+    /// <exception cref="ArgumentException">There is no history, or one is empty, all missing or holds an infinite value (the message names its index).</exception>
+    public static void Validate(IReadOnlyList<ReadOnlyMemory<float>> histories)
+    {
+        ArgumentNullException.ThrowIfNull(histories);
+        if (histories.Count == 0)
         {
-            throw new ArgumentException("The history has no observed value.", nameof(history));
+            throw new ArgumentException("There is no series to forecast.", nameof(histories));
+        }
+
+        for (int i = 0; i < histories.Count; i++)
+        {
+            if (Problem(histories[i].Span) is { } problem)
+            {
+                throw new ArgumentException($"Series {i}: {problem}", nameof(histories));
+            }
         }
     }
 

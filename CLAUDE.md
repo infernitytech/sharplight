@@ -45,6 +45,8 @@ prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` 
   Moirai 1.1 samples a mixture: parity is on the distribution parameters, sampled quantiles are compared in probability space.
   Chronos-2 (#91): `amazon/chronos-2`, references from `reference_chronos2.py` (chronos-forecasting >= 2.0; fedora-blackwell: `~/venvs/chronos2`);
   multivariate requests and covariates go through `ITimeSeriesForecaster.ForecastAsync(TimeSeriesForecastRequest)` (default implementation for univariate models).
+  HTTP (#92): `POST /v1/timeseries/forecast` (`TimeSeriesApi`, Sharplight.Serving.Tests `TimeSeriesApiTests` / `TimeSeriesRealTests`); independent series go through
+  `ForecastBatchAsync` — Chronos-Bolt's graph has a symbolic series axis `S` (old `.slm` files keep the rank-2 graph, one series per pass).
 - LLM architecture bring-up: tiny remote-code checkpoints come from `tests/Sharplight.Families.Tests/tools/mk_tiny_remote_code.py`
   (references: `hf_greedy_reference.py`); architectures llama.cpp added after the 8ca5a80 pin go in `LlamaCppAdditionsFamilyCases.cs`
   and docs/model-support.md section 26. A CPU-only build of llama.cpp HEAD (`cmake -B build -DGGML_CUDA=OFF`, target
@@ -89,7 +91,9 @@ prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` 
   Speculative (MTP) output equals plain decoding only while row-invariant compiles reproduce the plain single-row
   arithmetic bit for bit. Driver contraction differs per kernel variant and per compiler (NVIDIA Vulkan, RADV and NVRTC
   each differ; #10, benchmarks §123), so after touching matvec / int-dot sums run `*RowInvarianceTests*` on both providers
-  and `VerificationRowInvarianceTests` (Families).
+  and `VerificationRowInvarianceTests` (Families). Row-invariant sums must not imitate what one driver makes of the plain
+  expression: give plain and row-invariant SPIR-V compiles the same explicit `fma` / `precise` form (mmvq.slang
+  `MQ_FMA_CHAIN`, #102). The Families test needs `~/models/gguf/Qwen3-0.6B/Qwen3-0.6B-{Q8_0,Q4_K_M}.gguf` (unsloth/Qwen3-0.6B-GGUF).
 
 ## Style and layout
 

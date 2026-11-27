@@ -111,7 +111,7 @@ Python: `openai.OpenAI(base_url="http://localhost:8080/v1", api_key="x")` or `an
 | Option | Meaning |
 | --- | --- |
 | `<model>...`, `--model-name` | Models to serve: file paths, stored names or Hugging Face names (pulled if missing); `--model-name` sets the id the API reports for a single model (default: file name, or the name as given). |
-| `--model NAME=PATH[,key=value...]` | Another model; keys: `ctx`, `slots`, `batch`, `device` (`auto`, `cpu`, an index, a device id such as `vulkan:1`, several joined with `+` to split), `mmproj`, `template`, `lazy`, `pin`, `idle` (seconds), `offload`, `kind` (`chat`, `embedding`, `reranker`), `task` (a task kind). Repeatable. |
+| `--model NAME=PATH[,key=value...]` | Another model; keys: `ctx`, `slots`, `batch`, `device` (`auto`, `cpu`, an index, a device id such as `vulkan:1`, several joined with `+` to split), `mmproj`, `template`, `lazy`, `pin`, `idle` (seconds), `offload`, `kind` (`chat`, `embedding`, `reranker`), `task` (a task kind, e.g. `time-series`: served on `/v1/timeseries/forecast`). Repeatable. |
 | `--config FILE` | Hosting JSON ([docs/hosting.md](../../docs/hosting.md)). Command-line options win over file values. |
 | `--listen URL` (`--urls`), `--api openai\|anthropic\|both`, `--api-key K`, `--cors ORIGIN` | HTTP surface; keys also protect `/admin`. |
 | `--cpu`, `--device N`, `--ctx`, `--batch`, `--cpu-offload`, `--disable-features`, `--fp8-block-scaled` | Defaults for models without their own setting. |
