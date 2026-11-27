@@ -58,6 +58,7 @@ public class StepStateSnapshotTests
     [Theory]
     [InlineData("gguf/tiny-random-plamo2-f32.gguf", "SelectiveScan, CausalConv1d")]
     [InlineData("hf/tiny-random-granite-4.0-h", "SelectiveScan (Mamba-2), CausalConv1d")]
+    [InlineData("hf/granite-4.0-h-350m", "SelectiveScan (Mamba-2), CausalConv1d")]
     [InlineData("gguf/tiny-random-arwkv7-f32.gguf", "Wkv7, CausalConv1d (token shift)")]
     [InlineData("gguf/tiny-random-rwkv6qwen2-f32.gguf", "Wkv6, CausalConv1d (token shift)")]
     public void SixteenBitScanState_KeptState_ContinuesLikeTheWholePrompt(string path, string ops) => Run(path, ops, true, 48, DataType.BF16);

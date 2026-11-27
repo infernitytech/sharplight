@@ -1,0 +1,7 @@
+# Qwen3.5-0.8B (bf16 weights), RTX PRO 6000 Blackwell Max-Q, Vulkan, NVIDIA 610 driver
+# SHARPLIGHT_RECURRENT_STATE=bf16 SHARPLIGHT_VK_PROFILE=1 sharplight ~/models/hf/Qwen3.5-0.8B --bench 2048 --ctx 2304 --batch 2048
+# two interleaved rounds; "main" = origin/main 621a6f09 (bf16 state rounded once per run), "issue-11" = rounded after every chunk
+round 1 main      delta_chunk_state min 374.8 us   prep 59.4 us   qk 51.2 us   prefill best 37 ms = 54805.5 tok/s
+round 1 issue-11  delta_chunk_state min 393.2 us   prep 59.4 us   qk 42.0 us   prefill best 37 ms = 54995.2 tok/s
+round 2 main      delta_chunk_state min 366.6 us   prep 61.4 us   qk 22.5 us   prefill best 38 ms = 54281.0 tok/s
+round 2 issue-11  delta_chunk_state min 385.0 us   prep 61.4 us   qk 26.6 us   prefill best 39 ms = 51898.3 tok/s
