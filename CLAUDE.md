@@ -56,7 +56,10 @@ prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` 
   (references: `hf_greedy_reference.py`); architectures llama.cpp added after the 8ca5a80 pin go in `LlamaCppAdditionsFamilyCases.cs`
   and docs/model-support.md section 26. A CPU-only build of llama.cpp HEAD (`cmake -B build -DGGML_CUDA=OFF`, target
   `llama-completion`) takes a few minutes and is the reference for architectures the pin lacks; fedora-blackwell has one in
-  `~/scratch/llama.cpp-up` (#22).
+  `~/scratch/llama.cpp-up` (#22). `llama-completion` refuses GGUFs whose tokenizer adds EOS (ZAYA1: `GGML_ASSERT(!add_eos)`, and a prompt
+  ending in an EOG token stops at once); `llama-simple -m X -n N "prompt"` tokenizes like transformers (BOS and EOS added) and is the reference
+  there, `--override-kv tokenizer.ggml.add_eos_token=bool:false` makes `llama-completion` usable for chat prompts. ZAYA1 tiny models come from
+  `tools/mk_tiny_zaya1.py` (#82; transformers resets the skip expert's class bias to -1 on load).
 - Vision towers (mmproj): `ClipGgufMapping` maps each `clip.projector_type` onto the canonical `VisionParameters` keys that
   `VisionTowerGraph` / `VisionPreprocessor` / `Qwen35Multimodal` interpret; a new projector is usually a table entry plus a few keys.
   Tiny VL checkpoints are compared with transformers in `TinyQwenVlImageTests` (references written by the tools scripts named in

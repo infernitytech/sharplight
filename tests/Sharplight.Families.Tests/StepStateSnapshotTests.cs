@@ -36,6 +36,7 @@ public class StepStateSnapshotTests
             ("hf/tiny-random-lfm2", "CausalConv1d (short conv)"),
             ("hf/tiny-random-kimi-linear-f32", "GatedDeltaRule (per-channel decay), CausalConv1d"),
             ("hf/tiny-random-minimax", "GatedDeltaRule (additive rule, time-invariant decay)"),
+            ("gguf/tiny-random-zaya1-skip-f32.gguf", "CausalConv1d (ZAYA1 CCA: q/k windows, delayed values), skip expert"),
         ];
         foreach (var (path, ops) in models)
         {
