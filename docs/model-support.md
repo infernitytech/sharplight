@@ -559,12 +559,12 @@ Recommended order: Wave 1a first (it is also what Qwen3.6-35B-A3B needs), then `
 
 ## 7. Multimodal projectors (mmproj)
 
-llama.cpp `tools/mtmd/models/` implements these vision/audio front ends (file names = projector families). As of 2026-11-27 (llama.cpp HEAD b12798) llama.cpp knows 99 `clip.projector_type` values; Sharplight's mmproj importer (`ClipGgufMapping`) handles 12: `qwen2vl_merger`, `qwen2.5vl_merger`, `qwen3vl_merger` (incl. DeepStack), `gemma4v`, `glm4v`, `paddleocr`, `deepseekocr`, `deepseekocr2`, `hunyuanvl`, `cogvlm`, `gemma3` and `idefics3` (#86, see below). The remaining SigLIP / LLaVA-like towers are #99 (lfm2 / lfm3vl), #100 (internvl) and #101 (minicpmv); bidirectional image attention (Gemma 3) is done (#98); pixtral / llama4 / kimivl #87; the 16 types added after 8ca5a80 are almost all audio generation (#16, #21) plus `hy_v4_flash` (#83) and `inkling2v` (#85). The status column below predates several of those rows.
+llama.cpp `tools/mtmd/models/` implements these vision/audio front ends (file names = projector families). As of 2026-11-27 (llama.cpp HEAD b12798) llama.cpp knows 99 `clip.projector_type` values; Sharplight's mmproj importer (`ClipGgufMapping`) handles 13: `qwen2vl_merger`, `qwen2.5vl_merger`, `qwen3vl_merger` (incl. DeepStack), `gemma4v`, `glm4v`, `paddleocr`, `deepseekocr`, `deepseekocr2`, `hunyuanvl`, `cogvlm`, `gemma3`, `idefics3` (#86) and `lfm2` (#99, see below). The remaining SigLIP / LLaVA-like towers are #109 (lfm3vl), #100 (internvl) and #101 (minicpmv); bidirectional image attention (Gemma 3) is done (#98); pixtral / llama4 / kimivl #87; the 16 types added after 8ca5a80 are almost all audio generation (#16, #21) plus `hy_v4_flash` (#83) and `inkling2v` (#85). The status column below predates several of those rows.
 
 | Family | llama.cpp projector files | Used by | Status |
 |---|---|---|---|
 | Qwen vision | qwen2vl, qwen3vl (DeepStack), qwen3.5 merger (`qwen3vl_merger`) | Qwen2-VL/2.5-VL, Qwen3-VL(-MoE), Qwen3.5/3.6/3.8 | supported: qwen3_5, Qwen3-VL (DeepStack), Qwen2-VL (`qwen2vl_merger`) and Qwen2.5-VL (`qwen2.5vl_merger`, windowed attention) |
-| SigLIP / LLaVA-like | siglip, llava, internvl, minicpmv, mobilenetv5 (Gemma 3n), gemma4v/uv, kimivl, kimik25, lfm3vl, step3vl, magevl, mimovl, youtuvl, ling3vl, exaone4_5, nemotron-v2-vl, granite4-vision | Gemma 3/4, SmolVLM, InternVL, MiniCPM-V, GLM-4.xV, Kimi-VL, LFM2-VL, Step3-VL | missing (ViT tower graph exists in VisionTowerGraph; per-family resamplers/mergers and preprocessing missing; **done**: paddleocr (SigLIP tower + mlp_AR projector), glm4v (patch norm, bicubic position grid, convolution merger, GLM projector), gemma3 and idefics3 on the shared tower graph) |
+| SigLIP / LLaVA-like | siglip, llava, internvl, minicpmv, mobilenetv5 (Gemma 3n), gemma4v/uv, kimivl, kimik25, lfm3vl, step3vl, magevl, mimovl, youtuvl, ling3vl, exaone4_5, nemotron-v2-vl, granite4-vision | Gemma 3/4, SmolVLM, InternVL, MiniCPM-V, GLM-4.xV, Kimi-VL, LFM2-VL, Step3-VL | missing (ViT tower graph exists in VisionTowerGraph; per-family resamplers/mergers and preprocessing missing; **done**: paddleocr (SigLIP tower + mlp_AR projector), glm4v (patch norm, bicubic position grid, convolution merger, GLM projector), gemma3, idefics3 and lfm2 (the siglip.cpp LFM2 branch) on the shared tower graph) |
 | Pixtral | pixtral | Mistral-3 / Ministral-3 / Pixtral | missing |
 | Llama 4 | llama4 | Llama 4 | missing |
 | OCR / document | deepseekocr(2), paddleocr, dotsocr, dots3note, hunyuanvl, cogvlm | DeepSeek-OCR, PaddleOCR-VL, dots.ocr, HunyuanOCR, CogVLM | missing |
@@ -599,6 +599,25 @@ preprocessing vs transformers' PIL processors (`SiglipVlPreprocessTests`: same t
 vertical pass first, older Pillow and Sharplight horizontal first), and SmolVLM-256M-Instruct (f16 text GGUF and mmproj converted at llama.cpp
 HEAD) whose 60-token greedy description of the test image is identical to llama-mtmd-cli's on the CPU and the GPU. The ggml-org SmolVLM mmproj
 predates `preproc_image_size`; llama.cpp then slices it differently from transformers, Sharplight keeps transformers' longest edge.
+
+**lfm2 (#99, 2026-11-27).** LFM2-VL (`clip.projector_type` `lfm2`, the LFM2 hybrid language model, canonical `hybrid`, which now takes a vision
+tower): a SigLIP 2 NaFlex tower whose 16×16 learned position grid is resampled to every view with PyTorch's antialiased bilinear interpolate
+(`position_embedding.interpolation` `bilinear_antialias`: dense per-patch weights over the grid, one product with the table), trunk post-norm
+`v.post_ln`, pixel unshuffle (`clip.vision.projector.scale_factor`), the LayerNorm `mm.input_norm` (eps 1e-5, `vision.merger.merged_norm`) and the
+MLP `mm.1` / `mm.2` with exact GELU (transformers' `gelu`; llama.cpp runs the tanh form, the trunk's GELU is the tanh one in both). Preprocessing
+(Lfm2VlImageProcessor, `tile.layout` `lfm2`): smart resize within 64..256 image tokens (llama.cpp's fixed bounds), or, for an image whose area
+exceeds 2 · max (`clip.vision.preproc_max_pixels_tolerance`), the grid of 2..10 tiles of 512 px (`preproc_min_tiles` / `preproc_max_tiles` /
+`preproc_tile_size`) closest to its aspect ratio plus the smart-resized thumbnail; every view, of its own size, is one attention window. The resize
+filter is `clip.vision.image_resize_algo`; files without it (LiquidAI's published mmproj) resize bilinearly as llama.cpp does, transformers'
+processor is bicubic. Prompt: `<|image_start|>`, per tile `<|img_row_r_col_c|>` and its 256 rows, `<|img_thumbnail|>` and the thumbnail's rows,
+`<|image_end|>`; an untiled image is only its framed rows. Verified: tiny-random-lfm2-vl vs transformers
+(`Tiny_vl_gguf_mmproj_image_prompt_matches_transformers`: a 2×1 tile grid and a 96×32 thumbnail whose 2×6 patch grid resamples the position grid
+down and up; embeddings 6e-7 relative RMS, logits, greedy and the processor's expanded prompt; CPU and Vulkan), preprocessing vs transformers'
+torchvision processor of LFM2-VL-450M (`SiglipVlPreprocessTests`: same grids and view sizes for six images up to 10 tiles, pixels within two 8-bit
+steps; mmproj converted at llama.cpp HEAD, which writes the resize and tiling keys), and LFM2-VL-450M (Q8_0 and F16 with the published F16 mmproj):
+60 greedy tokens identical to llama-mtmd-cli on the test image and on a 1600×1100 enlargement (6 tiles + thumbnail, 1806 prompt rows), CPU and
+GPU. Not done: `lfm3vl` (LFM3-VL: a different tower with gated depthwise convolution layers, 2-D rotary attention and RMS norms; #109)
+and the Hugging Face import of `Lfm2VlForConditionalGeneration` (GGUF + mmproj only; #110).
 
 mmproj assets downloaded: Qwen3.8-Flash-Next-UD-Q4_K_XL (F16), Qwen3.6-35B-A3B (F16), Qwen3-VL-2B-Instruct (F16), gemma-3-4b-it (f16), Ministral-3-3B-Instruct-2512 (BF16), LFM2-VL-450M (F16). Priority: Qwen3-VL (DeepStack) with Wave 1b, then SigLIP/Gemma-3 and Pixtral.
 
@@ -768,6 +787,7 @@ Python venv (torch CPU, transformers 5.23, gguf, safetensors, sentencepiece, hug
 | remote-code generators (kimi_k3, k2_horizon, xing4_0, clef, vllm_decision2, cogvlm, `mk_tiny_remote_code.py` families) | run the model repository's own code: `tools/model-assets/stage_remote.py` downloads code and configs first, `tools/model-assets/run_remote_sandboxed.sh` then runs them in a venv of their own with an empty environment (no tokens) and offline flags |
 | `gguf/tiny-random-*-f32.gguf` of HF checkpoints | `tools/model-assets/convert_all.py` (llama.cpp's converter through `convert_tiny_gguf.py`; `TINY_PRE=falcon` for the Falcon file, `TINY_PRE=auto` for the real tokenizers of glm4v, hunyuan-vl and deepseek-ocr, `TINY_CONVERT_ARGS=--mtp` for the MTP draft file of nemotron-h, `--no-mtp` for its trunk) |
 | tiny Gemma 3 / Idefics3 vision-language (`hf/tiny-random-gemma3-vl`, `hf/tiny-random-idefics3` and their `gguf/` + `gguf/mmproj-*` files, #86) | `mk_tiny_siglip_vl.py <gemma3\|idefics3> <tokenizer dir> <out>` (tokenizer dirs: the json/model/txt files of `unsloth/gemma-3-4b-it` and `HuggingFaceTB/SmolVLM-256M-Instruct`), `siglip_vl_reference.py` and `siglip_vl_preprocess_reference.py` for the references (artifact `models/tiny-siglip-vl-assets-issue-98.tar.gz` holds all of these files, the Gemma 3 reference with `token_type_ids`); GGUF with llama.cpp HEAD: `convert_hf_to_gguf.py --outtype f32` (Gemma 3; Idefics3 on the Llama checkpoint `extract_idefics3_text.py` writes, since the converter only writes Idefics3's mmproj) and `convert_tiny_mmproj.py` for the mmproj |
+| tiny LFM2-VL (`hf/tiny-random-lfm2-vl`, `gguf/tiny-random-lfm2-vl-f32.gguf`, `gguf/mmproj-tiny-random-lfm2-vl-f32.gguf`, #99) and the LFM2-VL-450M preprocessing reference | `mk_tiny_siglip_vl.py lfm2_vl <tokenizer dir> <out>` (the json/jinja files of `LiquidAI/LFM2-VL-450M`), `siglip_vl_reference.py` (needs torchvision); the text GGUF from the Lfm2ForCausalLM checkpoint `extract_idefics3_text.py` writes, the mmproj with `convert_tiny_mmproj.py`. Preprocessing: `siglip_vl_preprocess_reference.py hf/LFM2-VL-450M` (the Hub checkpoint) and `convert_hf_to_gguf.py hf/LFM2-VL-450M --mmproj --outtype f16 --outfile gguf/LFM2-VL-450M/mmproj-LFM2-VL-450M-F16-head.gguf` next to `LiquidAI/LFM2-VL-450M-GGUF`'s files in `gguf/LFM2-VL-450M` |
 | `gguf/tiny-random-*-f32.gguf` of llama.cpp-only families | `mk_tiny_gguf.py <falcon GGUF> <out dir>`; the Falcon GGUF supplies the tokenizer and **must carry the `falcon` pre-tokenizer** (otherwise every prompt tokenizes differently and the llama.cpp ids change) |
 | GGUF references | `tools/model-assets/llamacpp_ids.py <runtime dir> <gguf> <prompt> <n>` (llama-server, CPU, greedy, `return_tokens`) |
 | `sd/`, `whisper.cpp/`, `audio/jfk.wav` | `ggerganov/whisper.cpp` (`ggml-*.bin`), `stable-diffusion-v1-5/stable-diffusion-v1-5` (diffusers files, `v1-5-pruned-emaonly.safetensors`), `second-state/stable-diffusion-v1-5-GGUF`, whisper.cpp `samples/jfk.wav`; the tiny SD pipeline is `tools/make-tiny-diffusion-models.py` (wip/diffusers) |
@@ -3654,7 +3674,7 @@ sample). Sampled paths are not comparable with torch's RNG, so the parity cases 
 Deviation: missing values inside a Chronos context become padding tokens that stay visible to the attention (the reference masks them; the
 encoder graph has no key mask); leading missing values are dropped, which is exact. Chronos-Bolt handles missing values exactly.
 
-Not done: Chronos-2 (`Chronos2Model`, multivariate with covariates), Moirai (follow-up issues; TimesFM is section 28), batching several series in one
+Not done: Chronos-2 (`Chronos2Model`, multivariate with covariates; follow-up issue; TimesFM is section 28, Moirai section 29), batching several series in one
 pass, an HTTP forecasting endpoint.
 
 ## 28. Time series: TimesFM 2.0 and 2.5 (2026-11-27, issue #89)
@@ -3695,3 +3715,46 @@ port takes none (the reference fills them the same way). `normalize_inputs` uses
 deviation of the constant lands just above the 1e-6 floor, which collapses every level onto the constant), here the deviation is exactly 0 and the levels
 keep the model's own spread of about 0.15 % around it (the test bounds that case separately). Not done: TimesFM 1.0 (sinusoidal position embedding, package
 checkpoint), the 2.0 frequency as a request option, covariates (`forecast_with_covariates`), batching several series in one pass.
+
+## 29. Time series: Moirai 1.1 and 2.0 (2026-11-27, issue #90)
+
+Kind `time-series` like section 27; models under `~/models/timeseries/<name>` (Hub downloads of `Salesforce/<name>`: config.json and model.safetensors),
+references from `tools/timeseries-reference/reference_moirai.py` (uni2ts at GitHub main of 2026-11-27, torch 2.15 CPU, f32; the cases of section 28);
+tests `MoiraiTests` in `tests/Sharplight.TimeSeries.Tests`. Moirai is not a transformers model: config.json holds the uni2ts module's keyword arguments
+without a `model_type`, so the importer recognizes the two forms by their keys (`distr_output` + `patch_sizes`: `moirai`; `quantile_levels` +
+`num_predict_token`: `moirai2`). Licence CC BY-NC 4.0 (the catalog entries carry a notice).
+
+| model | architecture | params | CPU | GPU (Vulkan, RADV iGPU) | `.slm` |
+|---|---|---|---|---|---|
+| moirai-2.0-R-small | `moirai2` | 11M | quantiles within 1.1e-6 of the forecast range | within 9e-7 | yes |
+| moirai-1.1-R-small | `moirai` | 14M | mixture parameters within 3e-6 (relative, at least 1); sampled quantiles statistically equal | parameters within 2e-6 | yes |
+| moirai-1.1-R-base | `moirai` | 91M | mixture parameters within 2e-5 | not run | not run (same importer path as small) |
+| moirai-1.1-R-large | `moirai` | 311M | mixture parameters within 1.2e-5 | not run | not run (same importer path as small) |
+
+Both share uni2ts' encoder: pre-norm layers with RMS norms (eps 1e-5), per-head query / key RMS norms, rotary time positions on the first half of every
+head (GPT-J pairs, base 10000), a SiLU-gated feed-forward block and a final RMS norm. The binary variate attention bias is not in the graph: for one
+series it adds the same value to every score of a head. Time ids follow uni2ts: leading patches without an observed value share id 0 with the first
+observed patch. The host does uni2ts' packed standard scaler (mean and sample deviation of the observed context values, `sqrt(var + 1e-5)`); missing
+values are 0 with a false observation flag, which is what uni2ts' imputation leaves for a univariate series (its `CausalMeanImputation` zero-fills
+2-D input), and the left padding to whole patches is 0 too (both scaled to −loc / scale).
+
+- **Moirai 2.0** (`TimeSeriesGraphs.QuantileDecoderGraph`, the quantile-decoder form): residual-block input projection of the 16 scaled values and their
+  observation mask, attention causal in time (spans: a row sees the rows whose time id is at most its own), and a residual-block head whose rows predict
+  the next 4 patches at 9 levels (64 steps per pass). Longer horizons follow `Moirai2Forecast`: every level's forecast extends its own sequence (each
+  re-scaled with statistics that include the fed-back values), the 9 sequences run packed in one pass, and the levels of all 81 forecasts per step give
+  the next block. The point forecast is the median. Context 1680 (the uni2ts notebook's).
+- **Moirai 1.1** (`TimeSeriesGraphs.MaskedEncoderGraph(p)`, the masked-encoder form, one graph per patch size 8 ... 128): the linear input projection
+  of patch size p, the learned mask embedding on the horizon's patches, bidirectional attention over context and horizon, and the distribution head of
+  p on the horizon rows. The importer splits the multi-size layers per patch size and fuses the 12 parameter heads into one matrix per size, keeping
+  the module's mixture-logit layout (component c at step t is row c · 128 + t of a head masked from 4 · p on, so for p < 128 three of the four
+  logits are trained biases). The host applies the domain maps and samples the mixture (Student-t, normal with scale 1e-3, negative binomial as a
+  gamma-Poisson draw, log-normal), 100 paths by default (`SampleCount`), seeded with `Seed`; quantiles are the samples' empirical quantiles, the mean
+  their mean. Patch size 32 by default (the notebook's), any of the five per request (`TimeSeriesForecastOptions.PatchSize`); context 1000, the whole
+  horizon (up to `maxHorizon`, 2048) in one pass, `PredictionLength` 64 is only the default horizon.
+
+Verification of the sampling model: the mixture parameters of every step are compared with uni2ts' distribution object; the sampled forecast (20000
+seeded paths) is compared in probability space with the quantiles of 20000 torch samples: every reference quantile at level l lies between the
+forecast's quantiles at l ± 0.025 (about five standard errors), which holds for all 6 748 checks of the eight cases (torch's RNG is not reproduced, and
+level-space bounds fail in heavy tails, where torch's own seeds differ by up to a quarter of the forecast range on the constant series). Not done: uni2ts' `patch_size="auto"` (the patch
+size with the lowest validation loss on the history's last window), multivariate series and covariates (the variate ids and the variate bias; with the
+Chronos-2 issue's multivariate API), Moirai-MoE, batching several series in one pass.

@@ -72,6 +72,14 @@ namespace Sharplight.Vision;
 /// (<c>tile.layout</c> <c>idefics3</c>): per tile row, per tile <c>&lt;fake_token_around_image&gt;&lt;row_r_col_c&gt;</c> and its rows, a newline
 /// after every tile row but the last; then <c>\n\n&lt;fake_token_around_image&gt;&lt;global-img&gt;</c>, the overview's rows and
 /// <c>&lt;fake_token_around_image&gt;</c> (the texts come from <c>image_begin_token</c> and <c>tile.global_token</c>);</item>
+/// <item>LFM2-VL towers (<c>tile.layout</c> <c>lfm2</c>, Lfm2VlImageProcessor): an image is smart-resized within <c>min_pixels</c> / <c>max_pixels</c>
+/// (the model's own bounds, not the encoder's token limits); one whose area, rounded to whole merge units, exceeds max_pixels ·
+/// <c>tile.max_pixels_tolerance</c> (default 2) is instead resized to the tile grid of <c>tile.min_tiles</c>..<c>tile.max_tiles</c> tiles (defaults 2, 10)
+/// closest to its aspect ratio, cut into tiles of <c>tile_size</c> and, with <c>tile.use_thumbnail</c> (default true), followed by the smart-resized
+/// image as thumbnail. Every view (tile or thumbnail, of its own size) is one attention window with the position grid resampled to it
+/// (<c>position_embedding.interpolation</c> <c>bilinear_antialias</c>); after the merge an optional LayerNorm <c>vision.merger.merged_norm</c>
+/// (epsilon <c>merger.norm_eps</c>) precedes the MLP. Prompt: <c>image_begin_token</c>, per tile <c>&lt;|img_row_r_col_c|&gt;</c> and its rows,
+/// <c>tile.global_token</c> and the thumbnail's rows, <c>image_end_token</c>; an untiled image is only its framed rows;</item>
 /// <item>preprocessing: <c>image_mean</c>, <c>image_std</c> (float[in_channels]), <c>min_pixels</c>, <c>max_pixels</c>
 /// (long; 0 = unlimited; bounds of the resized image area).</item>
 /// </list>
@@ -150,6 +158,13 @@ public sealed record VisionParameters
     public const string MeanPoolScale = "mean";
     /// <summary>The Idefics3 / SmolVLM prompt layout of a tiled image, see <see cref="TileLayout"/>.</summary>
     public const string Idefics3TileLayout = "idefics3";
+    /// <summary>The LFM2-VL tiling and prompt layout, see <see cref="TileLayout"/>.</summary>
+    public const string Lfm2TileLayout = "lfm2";
+    /// <summary>
+    /// PyTorch's <c>interpolate(mode="bilinear", align_corners=False, antialias=True)</c> of the learned grid to the patch grid (SigLIP 2 NaFlex), see
+    /// <see cref="PositionInterpolation"/>: every patch has a dense row of weights over the whole grid.
+    /// </summary>
+    public const string AntialiasedBilinearInterpolation = "bilinear_antialias";
     /// <summary>Every row of an image uses the media weight set, the default <see cref="MediaWeightRows"/>.</summary>
     public const string AllMediaWeightRows = "all";
     /// <summary>Every row of an image but its last uses the media weight set (CogVLM, see <see cref="MediaWeightRows"/>).</summary>
@@ -195,8 +210,9 @@ public sealed record VisionParameters
     public int PositionEmbeddingCount { get; init; }
     /// <summary>
     /// How the learned position grid is resampled to the image grid: "bilinear" (align_corners, 4 taps per patch), "bilinear_half_pixel"
-    /// (PyTorch's bilinear resize to the patch grid with align_corners off, 4 taps per patch; HunyuanVL) or "bicubic" (PyTorch
-    /// grid_sample at the patch centres, align_corners off, border padding, A = −0.75; 16 taps per patch; GLM-4V).
+    /// (PyTorch's bilinear resize to the patch grid with align_corners off, 4 taps per patch; HunyuanVL), "bicubic" (PyTorch
+    /// grid_sample at the patch centres, align_corners off, border padding, A = −0.75; 16 taps per patch; GLM-4V) or
+    /// <see cref="AntialiasedBilinearInterpolation"/> (the antialiased bilinear resize, as dense weights over the grid; LFM2-VL).
     /// </summary>
     public string PositionInterpolation { get; init; } = "bilinear";
     /// <summary>Base of the axial 2-D rotary position embedding, or 0 for none.</summary>
@@ -225,6 +241,14 @@ public sealed record VisionParameters
     public string TileLayout { get; init; } = "";
     /// <summary>With <see cref="TileLayout"/>: text of the token that precedes the overview's rows.</summary>
     public string TileGlobalToken { get; init; } = "";
+    /// <summary>LFM2 tiling: fewest tiles of a tile grid.</summary>
+    public int MinTiles { get; init; } = 2;
+    /// <summary>LFM2 tiling: most tiles of a tile grid.</summary>
+    public int MaxTiles { get; init; } = 10;
+    /// <summary>LFM2 tiling: an image is tiled when its area (rounded to whole merge units) exceeds max_pixels times this factor.</summary>
+    public float MaxPixelsTolerance { get; init; } = 2f;
+    /// <summary>LFM2 tiling: whether a tiled image is followed by its thumbnail (the smart-resized image).</summary>
+    public bool UseThumbnail { get; init; } = true;
     /// <summary>Whether the pooled rows are standardized with <c>vision.std_bias</c> / <c>vision.std_scale</c>.</summary>
     public bool Standardize { get; init; }
     /// <summary>How images are resized: <see cref="SmartResize"/> or <see cref="FitBudgetResize"/>.</summary>
@@ -292,8 +316,14 @@ public sealed record VisionParameters
     public int OutputTokenCount(int mergedHeight, int mergedWidth)
         => mergedHeight * (mergedWidth + (RowSeparator ? 1 : 0)) + (ImageBoundary ? 2 : 0);
 
-    /// <summary>Taps per patch of the position-embedding resampling (<see cref="PositionInterpolation"/>): 4 or 16; 2 for axial tables.</summary>
-    public int PositionTaps => AxialPositionEmbedding ? 2 : PositionInterpolation == "bicubic" ? 16 : 4;
+    /// <summary>
+    /// Taps per patch of the position-embedding resampling (<see cref="PositionInterpolation"/>): 4 or 16; 2 for axial tables; the grid size for
+    /// <see cref="AntialiasedBilinearInterpolation"/>.
+    /// </summary>
+    public int PositionTaps => AxialPositionEmbedding ? 2 : PositionInterpolation == "bicubic" ? 16
+        : PositionInterpolation == AntialiasedBilinearInterpolation ? PositionEmbeddingCount : 4;
+    /// <summary>Whether the position embedding is the dense product <c>EmbeddingWeight</c> · table (no tap indices, see <see cref="AntialiasedBilinearInterpolation"/>).</summary>
+    public bool DensePositionWeights => !AxialPositionEmbedding && PositionInterpolation == AntialiasedBilinearInterpolation;
     /// <summary>Side of the learned position grid.</summary>
     public int PositionGridSide => (int)Math.Round(Math.Sqrt(PositionEmbeddingCount));
     /// <summary>Tiled towers: output rows of the largest tile grid (the longest edge in whole tiles on both sides) plus the overview.</summary>
@@ -304,6 +334,14 @@ public sealed record VisionParameters
             if (TileSize <= 0)
             {
                 return 0;
+            }
+
+            if (TileLayout == Lfm2TileLayout)
+            {
+                // The largest grid's tiles plus the thumbnail (at most max_pixels).
+                int tileTokens = TileSize / (PatchSize * SpatialMergeSize);
+                long unit = (long)PatchSize * SpatialMergeSize * PatchSize * SpatialMergeSize;
+                return MaxTiles * tileTokens * tileTokens + (int)(MaxPixels / unit);
             }
 
             int side = (Math.Min(LongestEdge, 4096) + TileSize - 1) / TileSize;
@@ -358,6 +396,10 @@ public sealed record VisionParameters
             LongestEdge = Get("resize.longest_edge", 0),
             TileLayout = Get("tile.layout", ""),
             TileGlobalToken = Get("tile.global_token", ""),
+            MinTiles = Get("tile.min_tiles", 2),
+            MaxTiles = Get("tile.max_tiles", 10),
+            MaxPixelsTolerance = Get("tile.max_pixels_tolerance", 2f),
+            UseThumbnail = Get("tile.use_thumbnail", true),
             ResizeMode = Get("resize.mode", SmartResize),
             ImageBeginToken = Get("image_begin_token", ""),
             ImageEndToken = Get("image_end_token", ""),
@@ -488,6 +530,13 @@ public sealed record VisionParameters
             Set("resize.longest_edge", LongestEdge);
             Set("tile.layout", TileLayout);
             Set("tile.global_token", TileGlobalToken);
+            if (TileLayout == Lfm2TileLayout)
+            {
+                Set("tile.min_tiles", MinTiles);
+                Set("tile.max_tiles", MaxTiles);
+                Set("tile.max_pixels_tolerance", MaxPixelsTolerance);
+                Set("tile.use_thumbnail", UseThumbnail);
+            }
         }
 
         if (ImageBeginToken.Length > 0)
@@ -629,9 +678,10 @@ public sealed record VisionParameters
             throw new InvalidDataException("vision: attention.window must be >= 0 and attention.full_layers tower layer indices.");
         }
 
-        if (PositionInterpolation is not ("bilinear" or "bilinear_half_pixel" or "bicubic"))
+        if (PositionInterpolation is not ("bilinear" or "bilinear_half_pixel" or "bicubic" or AntialiasedBilinearInterpolation))
         {
-            throw new InvalidDataException($"vision: position_embedding.interpolation '{PositionInterpolation}' is not supported (bilinear, bilinear_half_pixel, bicubic).");
+            throw new InvalidDataException(
+                $"vision: position_embedding.interpolation '{PositionInterpolation}' is not supported (bilinear, bilinear_half_pixel, bicubic, {AntialiasedBilinearInterpolation}).");
         }
 
         if (PoolScale is not (SqrtHiddenPoolScale or MeanPoolScale) || ResizeFilter is not (ImageResampleFilter.Bilinear or ImageResampleFilter.Bicubic or ImageResampleFilter.Lanczos))
@@ -639,11 +689,12 @@ public sealed record VisionParameters
             throw new InvalidDataException($"vision: merger.pool.scale '{PoolScale}' ({SqrtHiddenPoolScale}, {MeanPoolScale}) or resize.filter {ResizeFilter} (bilinear, bicubic, lanczos) is not supported.");
         }
 
-        if (TileSize < 0 || (TileSize > 0 && (TileLayout != Idefics3TileLayout || TileSize % (PatchSize * SpatialMergeSize) != 0 || LongestEdge < TileSize
+        if (TileSize < 0 || (TileSize > 0 && (TileLayout is not (Idefics3TileLayout or Lfm2TileLayout) || TileSize % (PatchSize * SpatialMergeSize) != 0
+            || (TileLayout == Idefics3TileLayout && LongestEdge < TileSize) || (TileLayout == Lfm2TileLayout && (MinTiles < 1 || MaxTiles < MinTiles || MaxPixels <= 0))
             || WindowSize > 0 || HasLayout || ClassToken || DeepstackLayers.Length > 0 || Sam is not null || RopeBase > 0)))
         {
             throw new InvalidDataException(
-                $"vision: tile_size {TileSize} needs tile.layout '{Idefics3TileLayout}', a multiple of patch_size·spatial_merge_size, resize.longest_edge >= tile_size and a plain tower (no windows, layout rows, class token, DeepStack, SAM stage or rotary embedding).");
+                $"vision: tile_size {TileSize} needs tile.layout '{Idefics3TileLayout}' (with resize.longest_edge >= tile_size) or '{Lfm2TileLayout}' (with 1 <= tile.min_tiles <= tile.max_tiles and max_pixels), a multiple of patch_size·spatial_merge_size and a plain tower (no windows, layout rows, class token, DeepStack, SAM stage or rotary embedding).");
         }
 
         if (PositionEmbeddingCount > 0 && !AxialPositionEmbedding && PositionGridSide * PositionGridSide != PositionEmbeddingCount)

@@ -284,7 +284,7 @@ internal static class ModelInspector
 
     /// <summary>
     /// The kind of a checkpoint folder by its <c>config.json</c>: the speech-recognition families recognize speech, a Kokoro configuration (the <c>istftnet</c> section) and a folder
-    /// named like Orpheus (a language model that speaks through a codec) synthesize it, a <c>chronos_config</c> section or a TimesFM model type forecasts time series, everything else is a language model.
+    /// named like Orpheus (a language model that speaks through a codec) synthesize it, a <c>chronos_config</c> section, a TimesFM model type or uni2ts' Moirai module arguments forecast time series, everything else is a language model.
     /// </summary>
     private static string KindOfConfig(string config, string folder)
     {
@@ -313,6 +313,13 @@ internal static class ModelInspector
         if (modelType is "timesfm" or "timesfm2_5")
         {
             return ModelKinds.TimeSeriesForecasting;   // TimesFM 2.0, 2.5 (the timesfm package's config says timesfm too)
+        }
+
+        if (modelType is null && root.TryGetProperty("d_model", out _)
+            && ((root.TryGetProperty("distr_output", out _) && root.TryGetProperty("patch_sizes", out _))
+                || (root.TryGetProperty("quantile_levels", out _) && root.TryGetProperty("num_predict_token", out _))))
+        {
+            return ModelKinds.TimeSeriesForecasting;   // Moirai 1.x (mixture head over several patch sizes), Moirai 2.0 (quantile decoder): uni2ts module kwargs, no model type
         }
 
         if (modelType is not null && s_speechRecognitionModelTypes.Contains(modelType))

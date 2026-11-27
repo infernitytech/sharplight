@@ -40,6 +40,9 @@ prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` 
   chronos-forecasting; writes `~/models/timeseries/refs/<name>.json`). Chronos-T5 parity runs greedy (top-k 1); sampling is seeded, not torch-RNG equal.
   TimesFM (#89): `google/timesfm-2.0-500m-pytorch`, `google/timesfm-2.5-200m-pytorch` and `-transformers` in the same folder, references from
   `reference_timesfm.py` (venv with torch CPU, transformers >= 5 and the timesfm package from GitHub; fedora-blackwell has it in `~/venvs/timeseries`).
+  Moirai (#90): `Salesforce/moirai-2.0-R-small`, `moirai-1.1-R-{small,base,large}` (config.json + model.safetensors), references from
+  `reference_moirai.py` (uni2ts installed `--no-deps` from GitHub plus its imports, jax included for jaxtyping's PyTree; fedora-blackwell: `~/venvs/uni2ts`).
+  Moirai 1.1 samples a mixture: parity is on the distribution parameters, sampled quantiles are compared in probability space.
 - LLM architecture bring-up: tiny remote-code checkpoints come from `tests/Sharplight.Families.Tests/tools/mk_tiny_remote_code.py`
   (references: `hf_greedy_reference.py`); architectures llama.cpp added after the 8ca5a80 pin go in `LlamaCppAdditionsFamilyCases.cs`
   and docs/model-support.md section 26. A CPU-only build of llama.cpp HEAD (`cmake -B build -DGGML_CUDA=OFF`, target
@@ -49,9 +52,12 @@ prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` 
   `VisionTowerGraph` / `VisionPreprocessor` / `Qwen35Multimodal` interpret; a new projector is usually a table entry plus a few keys.
   Tiny VL checkpoints are compared with transformers in `TinyQwenVlImageTests` (references written by the tools scripts named in
   docs/model-support.md 8.3; the GGUFs come from llama.cpp HEAD's converter, which stores some projector weights in f16 regardless of
-  `--outtype`, so round them in the reference too). Bidirectional attention over an image's rows (Gemma 3, mmproj key `image_attention`; #98)
-  goes through CachedAttention's `lookahead` input (`InputRole.AttentionLookahead`, symbol `A`: 1 = no row looks ahead, plain kernels; T = the
-  pass has image rows, per-(head, query) kernel); every caller of a graph with that input must bind `A`.
+  `--outtype`, so round them in the reference too — but check the converted file's tensor types first: LFM2-VL's projector stays f32).
+  Bidirectional attention over an image's rows (Gemma 3, mmproj key `image_attention`; #98) goes through CachedAttention's `lookahead` input
+  (`InputRole.AttentionLookahead`, symbol `A`: 1 = no row looks ahead, plain kernels; T = the pass has image rows, per-(head, query) kernel);
+  every caller of a graph with that input must bind `A`. Towers whose views differ in size
+  (LFM2-VL tiles + thumbnail) go through `VisionPreprocessor.PatchifyViews`; the `hybrid` adapter (LFM2) takes a tower like `decoder`.
+  `siglip_vl_reference.py` for LFM2-VL needs torchvision in the venv (`uv pip install torchvision` matching the torch build).
 - Sharplight.Video.Tests (BundledFfmpegTests) fails, by design, without the bundled FFmpeg libraries in
   `native/ffmpeg/out/<rid>/` (gitignored, so needed once per checkout). Fastest route for linux-x64:
   `multiclaude artifact get builds/sharplight-native-ffmpeg-9.0.2-linux-x64.tar.gz native/ffmpeg/out -x`
@@ -71,6 +77,10 @@ prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` 
   constants (nearest Resize reads `ResizeNearestTable` index arrays, #67: the `div_rn` residual fma step in
   `spatial.slang` was not enough on the RTX 4090). The integrated RADV / llvmpipe devices (`SHARPLIGHT_VK_DEVICES=1`/`2` on fedora-blackwell) are handy
   for reproducing such driver-precision bugs.
+- Don't bake large tables into kernels as `static const` arrays (macro initializer lists): NVIDIA's Vulkan compiler copies a
+  dynamically indexed one into every thread's local memory, and at 16 KB per thread (T5-large's position-bias table) that
+  corrupted other models' memory and lost the device (#88). Pass them as `const:` buffers (`NewBuffer(BufferKind.Weight, "const:…", init:)`).
+  `SHARPLIGHT_VK_PIPELINE_STATS=1` shows each pipeline's "Local Memory Size" (the NVIDIA driver reports it plus 2^36).
 - Sharplight.Vulkan.Tests also runs on the CUDA provider with `SHARPLIGHT_TEST_PROVIDER=cuda` (same lowering, NVRTC).
   Speculative (MTP) output equals plain decoding only while row-invariant compiles reproduce the plain single-row
   arithmetic bit for bit. Driver contraction differs per kernel variant and per compiler (NVIDIA Vulkan, RADV and NVRTC

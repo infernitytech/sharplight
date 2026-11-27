@@ -254,7 +254,9 @@ public sealed class TimeSeriesPageTests
     [InlineData("timesfm-2.0-500m-pytorch", """{"architectures":["TimesFmModelForPrediction"],"model_type":"timesfm","patch_length":32}""")]
     [InlineData("timesfm-2.5-200m-pytorch", """{"architectures":["TimesFmModelForPrediction"],"model_type":"timesfm","quantile_horizon_length":1024}""")]
     [InlineData("timesfm-2.5-200m-transformers", """{"architectures":["TimesFm2_5ModelForPrediction"],"model_type":"timesfm2_5"}""")]
-    public void Inspector_RecognizesTimesFm_AsTimeSeriesForecasting(string name, string config)
+    [InlineData("moirai-1.1-R-small", """{"d_model":384,"distr_output":{"_target_":"uni2ts.distribution.mixture.MixtureOutput"},"num_layers":6,"patch_sizes":[8,16,32,64,128]}""")]
+    [InlineData("moirai-2.0-R-small", """{"d_model":384,"num_layers":6,"num_predict_token":4,"patch_size":16,"quantile_levels":[0.1,0.5,0.9]}""")]
+    public void Inspector_RecognizesTimesFmAndMoirai_AsTimeSeriesForecasting(string name, string config)
     {
         using var directory = new TempDir();
         string root = directory.File(name);

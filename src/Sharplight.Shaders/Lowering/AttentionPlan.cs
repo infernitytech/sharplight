@@ -34,10 +34,13 @@ internal sealed class AttentionPlan
     /// <summary>Paged cache: the block table [slots, blocks per slot] (null for a contiguous cache).</summary>
     public TensorRef? Pages { get; init; }
 
-    /// <summary>Sparse attention: the key positions each query row attends, i32 [rows, K] (entries below 0 are skipped).</summary>
     /// <summary>Query-conditioned relative position bias [T, HQ, E] (attribute <c>relative_bias</c> = E), or null.</summary>
     public TensorRef? RelativeBias { get; init; }
 
+    /// <summary>Learned relative position bias by distance, f32 [HQ · (2R + 1)] (attribute <c>position_bias</c>, a constant buffer), or null.</summary>
+    public TensorRef? PositionBias { get; init; }
+
+    /// <summary>Sparse attention: the key positions each query row attends, i32 [rows, K] (entries below 0 are skipped).</summary>
     public TensorRef? Selection { get; init; }
 
     /// <summary>Compressed cache of a compressed attention (entries of pooled windows joining the softmax); null otherwise.</summary>

@@ -3480,6 +3480,119 @@
       ]
     },
     {
+      "id": "lfm2-vl-450m",
+      "name": "LFM2-VL 450M",
+      "kind": "text-generation",
+      "family": "LFM",
+      "architecture": "lfm2",
+      "level": "verified",
+      "license": "other",
+      "gated": false,
+      "publisher": {
+        "name": "Liquid AI",
+        "countryOfOrigin": "US",
+        "url": "https://www.liquid.ai"
+      },
+      "tags": [
+        "vision"
+      ],
+      "variants": [
+        {
+          "id": "q8-0-gguf",
+          "label": "Q8_0 GGUF",
+          "format": "gguf",
+          "quantization": "Q8_0",
+          "recommended": true,
+          "memoryBytes": 1061099392,
+          "companions": [
+            "mmproj"
+          ],
+          "repository": "LiquidAI/LFM2-VL-450M-GGUF",
+          "revision": "7cf9679aa137039135e342aa77014f7b5f2bef73",
+          "include": [
+            "LFM2-VL-450M-Q8_0.gguf"
+          ],
+          "primary": "LFM2-VL-450M-Q8_0.gguf",
+          "files": [
+            {
+              "path": "LFM2-VL-450M-Q8_0.gguf",
+              "size": 379215264,
+              "sha256": "e97704a0cf0a1d00ca604b4c672c82f4234318dba9d43a7f7a4c0d2df6747844"
+            }
+          ]
+        },
+        {
+          "id": "f16-gguf",
+          "label": "F16 GGUF",
+          "format": "gguf",
+          "quantization": "F16",
+          "recommended": false,
+          "memoryBytes": 1443207039,
+          "companions": [
+            "mmproj"
+          ],
+          "repository": "LiquidAI/LFM2-VL-450M-GGUF",
+          "revision": "7cf9679aa137039135e342aa77014f7b5f2bef73",
+          "include": [
+            "LFM2-VL-450M-F16.gguf"
+          ],
+          "primary": "LFM2-VL-450M-F16.gguf",
+          "files": [
+            {
+              "path": "LFM2-VL-450M-F16.gguf",
+              "size": 711482784,
+              "sha256": "0197edb886bb25136b52ac47e8c75a1d51e7ba41deda7eb18e8258b193b59a3b"
+            }
+          ]
+        }
+      ],
+      "companions": [
+        {
+          "id": "mmproj",
+          "role": "mmproj",
+          "additionalRoles": [],
+          "intoVariantFolder": false,
+          "label": "Vision projector (F16)",
+          "repository": "LiquidAI/LFM2-VL-450M-GGUF",
+          "revision": "7cf9679aa137039135e342aa77014f7b5f2bef73",
+          "include": [
+            "mmproj-LFM2-VL-450M-F16.gguf"
+          ],
+          "primary": "mmproj-LFM2-VL-450M-F16.gguf",
+          "files": [
+            {
+              "path": "mmproj-LFM2-VL-450M-F16.gguf",
+              "size": 193346656,
+              "sha256": "416a085c5c7ba0f8d02bb8326c719a6f8f2210c2641c6bf64194a57c11c76e59"
+            }
+          ]
+        }
+      ],
+      "verification": {
+        "reference": "llama.cpp, transformers",
+        "summary": "greedy image descriptions identical to llama-mtmd-cli (b12798) for 60 tokens (Q8_0 and F16, untiled and a 6-tile image, CPU and GPU); tiny LFM2-VL tower, layout and greedy vs transformers; preprocessing vs the transformers processor",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-27",
+        "tests": []
+      },
+      "notes": "lfm2 mmproj: SigLIP 2 NaFlex tower on smart-resized views or tiles plus a thumbnail, pixel unshuffle, LayerNorm and MLP, the LFM2-VL prompt layout. This mmproj predates clip.vision.image_resize_algo; Sharplight then resizes bilinearly as llama.cpp does (transformers\u0027 processor is bicubic)",
+      "licenseNotice": "LFM Open License v1.0: free for research and for commercial use only while your annual revenue is below 10 million US dollars; above that a commercial licence from Liquid AI is needed.",
+      "doc": [
+        {
+          "section": "1.3",
+          "cells": {
+            "repositories": "LiquidAI/LFM2-VL-450M-GGUF",
+            "formats": "GGUF Q8_0, F16 \u002B mmproj (F16)",
+            "verification": "60 greedy tokens identical to llama-mtmd-cli (Q8_0 and F16, untiled and tiled image, CPU and GPU); tower, layout and greedy vs transformers on a tiny LFM2-VL; preprocessing vs the transformers processor",
+            "notes": "LFM3-VL (lfm3vl projector) is #109"
+          }
+        }
+      ]
+    },
+    {
       "id": "gemma-2-2b-it",
       "name": "Gemma 2 2B it",
       "kind": "text-generation",
@@ -9036,11 +9149,11 @@
     },
     {
       "id": "ministral-3-3b-gemma-3-4b-lfm2-vl-450m",
-      "name": "Ministral 3 3B, LFM2-VL 450M",
+      "name": "Ministral 3 3B",
       "kind": "text-generation",
       "family": "",
       "level": "verified",
-      "license": "other",
+      "license": "apache-2.0",
       "gated": false,
       "tags": [],
       "variants": [],
@@ -9054,12 +9167,11 @@
         "date": "2026-11-14",
         "tests": []
       },
-      "licenseNotice": "Two licences: Ministral 3 is Apache-2.0 (no conditions); LFM2-VL is under the LFM Open License v1.0 (commercial use only below 10 million US dollars annual revenue).",
       "doc": [
         {
           "section": "1.3",
           "cells": {
-            "repositories": "mistralai / LiquidAI",
+            "repositories": "mistralai",
             "formats": "GGUF \u002B mmproj"
           }
         }
@@ -34262,7 +34374,7 @@
         "date": "2026-11-27",
         "tests": []
       },
-      "notes": "9 quantiles x 128 steps per pass, context 15360; the model card's forecast flags (input normalization, continuous quantile head up to 1024 steps, flip invariance, non-negativity, quantile-crossing fix)",
+      "notes": "9 quantiles x 128 steps per pass, context 15360; the model card\u0027s forecast flags (input normalization, continuous quantile head up to 1024 steps, flip invariance, non-negativity, quantile-crossing fix)",
       "doc": [
         {
           "section": "9",
@@ -34321,7 +34433,7 @@
       "companions": [],
       "verification": {
         "reference": "timesfm",
-        "summary": "the timesfm package's forecasts of google/timesfm-2.5-200m-pytorch within 5e-6 of the forecast range (8 cases incl. missing values, a 2600-value context, a 300-step horizon, a signed series)",
+        "summary": "the timesfm package\u0027s forecasts of google/timesfm-2.5-200m-pytorch within 5e-6 of the forecast range (8 cases incl. missing values, a 2600-value context, a 300-step horizon, a signed series)",
         "providers": [
           "CPU",
           "Vulkan"
@@ -34335,6 +34447,278 @@
           "section": "9",
           "cells": {
             "repositories": "google/timesfm-2.5-200m-transformers",
+            "formats": "safetensors; .slm"
+          }
+        }
+      ]
+    },
+    {
+      "id": "moirai-2.0-r-small",
+      "name": "Moirai 2.0 Small",
+      "kind": "time-series",
+      "family": "Moirai",
+      "architecture": "moirai2",
+      "level": "verified",
+      "license": "cc-by-nc-4.0",
+      "gated": false,
+      "publisher": {
+        "name": "Salesforce",
+        "countryOfOrigin": "US",
+        "url": "https://www.salesforce.com/research"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 120000000,
+          "companions": [],
+          "repository": "Salesforce/moirai-2.0-R-small",
+          "revision": "30f43ff08c8494f4943ae1521e9d4e94a0fbb389",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 291,
+              "gitOid": "e5117c0f34056ab8b5ef57202b9dffa6ad39059a"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 45557824,
+              "sha256": "fb5652a3db8ea572606221b7cb1e77bb8962b168e4d4cc752cf31ceb04074669"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "uni2ts",
+        "summary": "quantile forecasts within 2e-6 of the forecast range (8 cases incl. missing values, a 2600-value context, a 300-step horizon, a signed series)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-27",
+        "tests": []
+      },
+      "notes": "9 quantiles x 64 steps per pass, context 1680; longer horizons feed every quantile back as its own sequence (uni2ts\u0027 Moirai2Forecast); univariate only; non-commercial license",
+      "licenseNotice": "CC BY-NC 4.0: research and other non-commercial use only; commercial use needs a separate licence from Salesforce.",
+      "doc": [
+        {
+          "section": "9",
+          "cells": {
+            "repositories": "Salesforce/moirai-2.0-R-small",
+            "formats": "safetensors; .slm"
+          }
+        }
+      ]
+    },
+    {
+      "id": "moirai-1.1-r-small",
+      "name": "Moirai 1.1 Small",
+      "kind": "time-series",
+      "family": "Moirai",
+      "architecture": "moirai",
+      "level": "verified",
+      "license": "cc-by-nc-4.0",
+      "gated": false,
+      "publisher": {
+        "name": "Salesforce",
+        "countryOfOrigin": "US",
+        "url": "https://www.salesforce.com/research"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 150000000,
+          "companions": [],
+          "repository": "Salesforce/moirai-1.1-R-small",
+          "revision": "0c24ab99db2c1a70ea2a0fc03bf113329772ac64",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 682,
+              "gitOid": "ae2a0de8172dba3af57413d0d459723ecf714773"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 55320200,
+              "sha256": "cc46831272ea07e99d78fe05c09e730c7c76a1b272cddbdaf5173dae371cb238"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "uni2ts",
+        "summary": "mixture parameters per step within 3e-6 of uni2ts (8 cases incl. missing values, a 2600-value context, a 300-step horizon, a signed series); seeded sampled quantiles statistically equal to uni2ts\u0027 samples",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-27",
+        "tests": []
+      },
+      "notes": "masked encoder at patch size 32 (8 to 128 per request), context 1000, horizons up to 2048 steps in one pass; quantiles and mean of 100 sampled paths by default (mixture of Student-t, normal, negative binomial and log-normal); univariate only; non-commercial license",
+      "licenseNotice": "CC BY-NC 4.0: research and other non-commercial use only; commercial use needs a separate licence from Salesforce.",
+      "doc": [
+        {
+          "section": "9",
+          "cells": {
+            "repositories": "Salesforce/moirai-1.1-R-small",
+            "formats": "safetensors; .slm"
+          }
+        }
+      ]
+    },
+    {
+      "id": "moirai-1.1-r-base",
+      "name": "Moirai 1.1 Base",
+      "kind": "time-series",
+      "family": "Moirai",
+      "architecture": "moirai",
+      "level": "verified",
+      "license": "cc-by-nc-4.0",
+      "gated": false,
+      "publisher": {
+        "name": "Salesforce",
+        "countryOfOrigin": "US",
+        "url": "https://www.salesforce.com/research"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 800000000,
+          "companions": [],
+          "repository": "Salesforce/moirai-1.1-R-base",
+          "revision": "a0358780de4cdd7ac7963b12ae9985d225d55026",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 683,
+              "gitOid": "21f44903cb12e12ba23d6afc0bbf4dfc0b2b296c"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 365449072,
+              "sha256": "a533dc23e2981c558ec030d49260053b9e93d87d3deb8bf22cb158118ba29b0e"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "uni2ts",
+        "summary": "mixture parameters per step within 2e-5 of uni2ts (8 cases incl. missing values, a 2600-value context, a 300-step horizon, a signed series) (CPU)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-27",
+        "tests": []
+      },
+      "notes": "masked encoder at patch size 32 (8 to 128 per request), context 1000, horizons up to 2048 steps in one pass; quantiles and mean of 100 sampled paths by default (mixture of Student-t, normal, negative binomial and log-normal); univariate only; non-commercial license",
+      "licenseNotice": "CC BY-NC 4.0: research and other non-commercial use only; commercial use needs a separate licence from Salesforce.",
+      "doc": [
+        {
+          "section": "9",
+          "cells": {
+            "repositories": "Salesforce/moirai-1.1-R-base",
+            "formats": "safetensors; .slm"
+          }
+        }
+      ]
+    },
+    {
+      "id": "moirai-1.1-r-large",
+      "name": "Moirai 1.1 Large",
+      "kind": "time-series",
+      "family": "Moirai",
+      "architecture": "moirai",
+      "level": "verified",
+      "license": "cc-by-nc-4.0",
+      "gated": false,
+      "publisher": {
+        "name": "Salesforce",
+        "countryOfOrigin": "US",
+        "url": "https://www.salesforce.com/research"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 2600000000,
+          "companions": [],
+          "repository": "Salesforce/moirai-1.1-R-large",
+          "revision": "d144331c5a18e986a9828e7378994b39e209d466",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 684,
+              "gitOid": "2862ed818e8c02d35670576b283ca672c1134f5c"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 1243917120,
+              "sha256": "2fd4e26c83779431550ea5f09fdb43de5c9dea5a349abb33b8bc9be8d8da94e5"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "uni2ts",
+        "summary": "mixture parameters per step within 2e-5 of uni2ts (8 cases incl. missing values, a 2600-value context, a 300-step horizon, a signed series) (CPU)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-27",
+        "tests": []
+      },
+      "notes": "masked encoder at patch size 32 (8 to 128 per request), context 1000, horizons up to 2048 steps in one pass; quantiles and mean of 100 sampled paths by default (mixture of Student-t, normal, negative binomial and log-normal); univariate only; non-commercial license",
+      "licenseNotice": "CC BY-NC 4.0: research and other non-commercial use only; commercial use needs a separate licence from Salesforce.",
+      "doc": [
+        {
+          "section": "9",
+          "cells": {
+            "repositories": "Salesforce/moirai-1.1-R-large",
             "formats": "safetensors; .slm"
           }
         }

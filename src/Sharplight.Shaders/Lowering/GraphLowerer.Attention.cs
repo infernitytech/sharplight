@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using Sharplight.Graph;
 using Sharplight.Models;
 using Sharplight.Runtime;
@@ -355,6 +356,7 @@ public sealed partial class GraphLowerer
         // inputs after the selection: [relative bias [T, HQ, E]], then the multi-sequence tables
         int relativeExtent = full ? 0 : n.Attributes.Get("relative_bias", 0);
         TensorRef? relativeBias = relativeExtent > 0 ? DenseInput(n.Inputs[3 + sinksInputs], "attn-relative-bias") : null;
+        var positionBias = PositionBiasTable(n);
         sinksInputs += relativeBias is null ? 0 : 1;
         // then [lookahead i32 [A]] (rows of the pass each row also sees after its own)
         TensorRef? lookahead = !full && n.Attributes.Get("lookahead", false) ? DenseInput(n.Inputs[3 + sinksInputs], "attn-lookahead") : null;
@@ -451,6 +453,7 @@ public sealed partial class GraphLowerer
             SequenceRows = sequenceRows,
             Selection = selection,
             RelativeBias = relativeBias,
+            PositionBias = positionBias,
             Compressed = compressed,
             Lookahead = lookahead,
             Cross = cross,
@@ -486,14 +489,14 @@ public sealed partial class GraphLowerer
            && t.Shape[2] % 8 == 0;
 
     /// <summary>
-    /// The HAS_ALIBI / ALIBI_SLOPES and HAS_POS_BIAS / POS_BIAS_RANGE / POS_BIAS_TABLE kernel macros of an attention node: its
-    /// <c>alibi_slopes</c> and <c>position_bias</c> become constant arrays of the kernel (round-trip float literals), so they need no buffer
-    /// and the kernels no extra binding.
+    /// The HAS_ALIBI / ALIBI_SLOPES and HAS_POS_BIAS / POS_BIAS_RANGE kernel macros of an attention node: its <c>alibi_slopes</c> become a
+    /// constant array of the kernel (round-trip float literals, one per head), its <c>position_bias</c> table the buffer of
+    /// <see cref="PositionBiasTable"/>.
     /// </summary>
     private static (string, object)[] AlibiMacros(Node n)
     {
-        (string, object)[] positionBias = n.Attributes.Get<float[]?>("position_bias", null) is { } table
-            ? [("HAS_POS_BIAS", true), ("POS_BIAS_RANGE", n.Attributes.Get("position_bias_range", 0)), ("POS_BIAS_TABLE", Literals(table))]
+        (string, object)[] positionBias = n.Attributes.Get<float[]?>("position_bias", null) is not null
+            ? [("HAS_POS_BIAS", true), ("POS_BIAS_RANGE", n.Attributes.Get("position_bias_range", 0))]
             : [("HAS_POS_BIAS", false)];
         if (n.Attributes.Get<float[]?>("alibi_slopes", null) is not { } slopes)
         {
@@ -501,6 +504,24 @@ public sealed partial class GraphLowerer
         }
 
         return [("HAS_ALIBI", true), ("ALIBI_SLOPES", Literals(slopes)), .. positionBias];
+    }
+
+    /// <summary>
+    /// The <c>position_bias</c> table of an attention node ([HQ, 2R + 1] f32, <c>p.posb</c>) as a read-only device buffer uploaded with the
+    /// weights, or null without one. Not a constant array of the kernel: NVIDIA's Vulkan compiler copies a dynamically indexed constant
+    /// array into every thread's local memory (16 KB per thread for T5-large's 16 heads x 257 distances), and kernels with that much
+    /// local memory corrupted other allocations and lost the device (#88).
+    /// </summary>
+    private TensorRef? PositionBiasTable(Node n)
+    {
+        if (n.Attributes.Get<float[]?>("position_bias", null) is not { } table)
+        {
+            return null;
+        }
+
+        byte[] bytes = MemoryMarshal.AsBytes(table.AsSpan()).ToArray();
+        var buffer = NewBuffer(BufferKind.Weight, $"const:position-bias {n.Output.Name}", bytes.Length, init: bytes);
+        return new TensorRef(buffer, 0, DataType.F32, [table.Length], [1], null);
     }
 
     /// <summary>A Slang initializer list of round-trip float literals.</summary>
@@ -1018,9 +1039,9 @@ public sealed partial class GraphLowerer
         Emit($"attention {plan.Node.Output.Name}", [plan.Node],
             variants,
             [Pointer(plan.Q), Pointer(plan.K), Pointer(plan.V), Pointer(o), Pointer(part), Pointer(sinks ?? o), new PointerArg(_runtime, 0),
-             .. SeqArgs(seq, plan.Runs, plan.Pages, spans, plan.Selection, plan.Compressed, plan.Mask, plan.RelativeBias, lookahead), TokenArg(plan.Q), new UIntArg((uint)firstRow), .. plan.Cross ? (KernelArg[])[TokenArg(plan.K)] : [],
+             .. SeqArgs(seq, plan.Runs, plan.Pages, spans, plan.Selection, plan.Compressed, plan.Mask, plan.RelativeBias, plan.PositionBias, lookahead), TokenArg(plan.Q), new UIntArg((uint)firstRow), .. plan.Cross ? (KernelArg[])[TokenArg(plan.K)] : [],
              Pointer(arrivals ?? o)],
-            [plan.Q, plan.K, plan.V, .. sinks is null ? [] : (TensorRef[])[sinks], .. PresentTables(seq, plan.Runs, plan.Pages, spans, plan.Selection, plan.Compressed, plan.Mask, plan.RelativeBias, lookahead)],
+            [plan.Q, plan.K, plan.V, .. sinks is null ? [] : (TensorRef[])[sinks], .. PresentTables(seq, plan.Runs, plan.Pages, spans, plan.Selection, plan.Compressed, plan.Mask, plan.RelativeBias, plan.PositionBias, lookahead)],
             arrivals is null ? outputs : [.. outputs, arrivals]);
     }
 

@@ -1,6 +1,7 @@
 using Sharplight.Graph;
 using Sharplight.Models;
 using Sharplight.Tensors;
+using Sharplight.Vision;
 
 namespace Sharplight.Architectures;
 
@@ -30,6 +31,10 @@ namespace Sharplight.Architectures;
 /// [hidden, K] f32 add a causal depthwise convolution of the mixer / feed-forward output to itself before it joins the residual
 /// (<c>y + conv(y)</c>, states <c>{group}.mixer_conv_state</c> / <c>ffn_conv_state</c>); <c>mlp.output_scale</c> [1] multiplies the
 /// feed-forward output.
+/// Optional vision tower (image input, LFM2-VL): hyper-parameters <c>hybrid.vision.*</c> and weights <c>vision.*</c> as documented on
+/// <see cref="VisionParameters"/>, in the primary source or an auxiliary <see cref="AuxiliaryRoles.Mmproj"/> source; the definition then has the
+/// <see cref="WellKnown.VisionEncodeGraph"/> and <see cref="WellKnown.DecodeMultimodalGraph"/> graphs (token or image rows per prompt row) and prompts
+/// are assembled by <see cref="Qwen35Multimodal"/> on one position axis.
 /// </remarks>
 public sealed class HybridAdapter : IModelAdapter
 {
@@ -84,37 +89,69 @@ public sealed class HybridAdapter : IModelAdapter
             states.AddRange(new[] { ssm.Conv, ssm.Scan, kv.Keys, kv.Values, conv, linear, kvConv.Keys, kvConv.Values, mixerConv, ffnConv }.OfType<StateDefinition>());
         }
 
+        // Vision tower: in the primary source or an auxiliary "mmproj" source, same canonical names either way.
+        var visionSrc = sources.Auxiliary.GetValueOrDefault(AuxiliaryRoles.Mmproj) ?? src;
+        var vision = VisionParameters.FromMetadata(visionSrc.Metadata, visionSrc.Architecture + ".vision.");
+        if (vision is not null && !string.Equals(visionSrc.Architecture, src.Architecture, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new NotSupportedException($"The vision tower source '{visionSrc.Path}' belongs to architecture '{visionSrc.Architecture}', not '{src.Architecture}'.");
+        }
+
+        if (vision is not null && (vision.DeepstackLayers.Length > 0 || vision.OutHiddenSize != hidden || vision.Sam is not null))
+        {
+            throw new NotSupportedException($"hybrid: the vision tower must produce {hidden}-wide rows without DeepStack blocks or SAM stages.");
+        }
+
+        var allWeights = src.Weights;
+        if (vision is not null && !ReferenceEquals(visionSrc, src))
+        {
+            var merged = new Dictionary<string, WeightInfo>(src.Weights, StringComparer.Ordinal);
+            foreach (var (k, w) in visionSrc.Weights)
+            {
+                merged[k] = w;
+            }
+
+            allWeights = merged;
+        }
+
+        WeightInfo? Lookup(string n) => allWeights.TryGetValue(n, out var w) ? w : null;
         var graphs = new Dictionary<string, ComputeGraph> { [WellKnown.DecodeGraph] = BuildTrunk(WellKnown.DecodeGraph, false) };
         if (options.IncludeAuxiliaryGraphs)
         {
             graphs["decode_embeddings"] = BuildTrunk("decode_embeddings", true);
         }
 
-        return RecurrentModelDefinition.Create(src, layerCount, hidden, graphs, states);
+        if (vision is not null)
+        {
+            graphs[WellKnown.DecodeMultimodalGraph] = BuildTrunk(WellKnown.DecodeMultimodalGraph, true, mixed: true);
+            graphs[WellKnown.VisionEncodeGraph] = VisionTowerGraph.Build(vision, Lookup);
+        }
 
-        ComputeGraph BuildTrunk(string name, bool embeddingsInput)
+        return RecurrentModelDefinition.Create(src, layerCount, hidden, graphs, states, allWeights, vision, visionSrc);
+
+        ComputeGraph BuildTrunk(string name, bool embeddingsInput, bool mixed = false)
         {
             var b = new GraphBuilder(name, src.Weight);
             var T = Dim.Sym(WellKnown.TokenSymbol);
             Value x;
             using (b.Group("input"))
             {
-                if (embeddingsInput)
+                if (mixed)
+                {
+                    // Rows are token embeddings or media embeddings: x = tok·(1-mask) + emb·mask (the embedding scale and norm apply to token rows only).
+                    var tokens = b.Input("tokens", InputRole.TokenIds, DataType.I32, new Shape(T));
+                    var emb = b.Input("embeddings", InputRole.Embeddings, DataType.F32, new Shape(T, hidden));
+                    var mask = b.Input("embedding_mask", InputRole.EmbeddingMask, DataType.F32, new Shape(T, 1));
+                    var tok = TokenEmbeddings(b, tokens, "tok_embd");
+                    x = b.Add(b.Mul(tok, b.Scale(mask, -1f, 1f)), b.Mul(emb, mask), "inp_embd");
+                }
+                else if (embeddingsInput)
                 {
                     x = b.Input("embeddings", InputRole.Embeddings, DataType.F32, new Shape(T, hidden));
                 }
                 else
                 {
-                    x = b.Gather(b.Weight("token_embedding.weight"), b.Input("tokens", InputRole.TokenIds, DataType.I32, new Shape(T)), "inp_embd");
-                    if (embeddingScale != 1f)
-                    {
-                        x = b.Scale(x, embeddingScale);
-                    }
-
-                    if (b.TryWeight("embedding_norm.weight") is { } embeddingNorm)
-                    {
-                        x = b.RmsNorm(x, embeddingNorm, eps, "inp_embd_norm");
-                    }
+                    x = TokenEmbeddings(b, b.Input("tokens", InputRole.TokenIds, DataType.I32, new Shape(T)), "inp_embd");
                 }
             }
 
@@ -187,6 +224,22 @@ public sealed class HybridAdapter : IModelAdapter
             ffn = HybridAttention.ResidualConv(b, ffn, p + "mlp.out_conv.weight", layer.FeedForwardConv);
             var ffnOut = Scaled(b, OutputNorm(b, ffn, p + "mlp.out_norm.weight"), PerLayer(ffnScale, il, residualScale));
             return b.Add(ffnOut, Scaled(b, residualFromNorm ? normed : x, PerLayer(ffnInputScale, il, 1f)), $"{p}l_out");
+        }
+
+        Value TokenEmbeddings(GraphBuilder b, Value tokens, string name)
+        {
+            var x = b.Gather(b.Weight("token_embedding.weight"), tokens, name);
+            if (embeddingScale != 1f)
+            {
+                x = b.Scale(x, embeddingScale);
+            }
+
+            if (b.TryWeight("embedding_norm.weight") is { } embeddingNorm)
+            {
+                x = b.RmsNorm(x, embeddingNorm, eps, "inp_embd_norm");
+            }
+
+            return x;
         }
 
         static float PerLayer(float[] scales, int il, float fallback) => il < scales.Length ? scales[il] : fallback;

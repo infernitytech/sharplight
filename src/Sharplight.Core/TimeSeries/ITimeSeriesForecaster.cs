@@ -3,7 +3,7 @@ using Sharplight.Tasks;
 namespace Sharplight.TimeSeries;
 
 /// <summary>
-/// Probabilistic time-series forecasting (kind <see cref="Models.ModelKinds.TimeSeriesForecasting"/>: Chronos, Chronos-Bolt, TimesFM): the history of one
+/// Probabilistic time-series forecasting (kind <see cref="Models.ModelKinds.TimeSeriesForecasting"/>: Chronos, Chronos-Bolt, TimesFM, Moirai): the history of one
 /// univariate series in, quantile forecasts of the next steps out. Follows the task-client pattern of every model kind (<see cref="ITaskClient"/>);
 /// the call runs the compiled graphs off the caller's thread, one request at a time.
 /// </summary>
@@ -12,7 +12,10 @@ public interface ITimeSeriesForecaster : ITaskClient
     /// <summary>The most recent observations the model looks at; older history is ignored.</summary>
     public int ContextLength { get; }
 
-    /// <summary>The steps one model pass predicts. Longer horizons are predicted autoregressively (with a quality loss the model cards warn about).</summary>
+    /// <summary>
+    /// The steps one model pass predicts, the default horizon. Longer horizons are predicted autoregressively (with a quality loss the model cards warn
+    /// about), except by masked-encoder models (Moirai 1.x), which predict any horizon up to their limit in one pass.
+    /// </summary>
     public int PredictionLength { get; }
 
     /// <summary>The quantile levels the model predicts natively (other levels are interpolated between them).</summary>
