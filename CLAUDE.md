@@ -47,6 +47,8 @@ prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` 
   multivariate requests and covariates go through `ITimeSeriesForecaster.ForecastAsync(TimeSeriesForecastRequest)` (default implementation for univariate models).
   HTTP (#92): `POST /v1/timeseries/forecast` (`TimeSeriesApi`, Sharplight.Serving.Tests `TimeSeriesApiTests` / `TimeSeriesRealTests`); independent series go through
   `ForecastBatchAsync` — Chronos-Bolt's graph has a symbolic series axis `S` (old `.slm` files keep the rank-2 graph, one series per pass).
+  Chronos-T5 masks missing values (#93) through the encode graph's `key_bias` input (`encoder.key_bias`) and gives the cross-attention only the observed
+  encoder rows; the fused `Attention` op's f32 mask combines with `position_bias` / ALiBi on GPU (kernels `main` / `fa`), not with causal or a window.
 - LLM architecture bring-up: tiny remote-code checkpoints come from `tests/Sharplight.Families.Tests/tools/mk_tiny_remote_code.py`
   (references: `hf_greedy_reference.py`); architectures llama.cpp added after the 8ca5a80 pin go in `LlamaCppAdditionsFamilyCases.cs`
   and docs/model-support.md section 26. A CPU-only build of llama.cpp HEAD (`cmake -B build -DGGML_CUDA=OFF`, target
