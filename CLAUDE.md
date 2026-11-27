@@ -47,6 +47,8 @@ prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` 
   multivariate requests and covariates go through `ITimeSeriesForecaster.ForecastAsync(TimeSeriesForecastRequest)` (default implementation for univariate models).
   HTTP (#92): `POST /v1/timeseries/forecast` (`TimeSeriesApi`, Sharplight.Serving.Tests `TimeSeriesApiTests` / `TimeSeriesRealTests`); independent series go through
   `ForecastBatchAsync` — Chronos-Bolt's graph has a symbolic series axis `S` (old `.slm` files keep the rank-2 graph, one series per pass).
+  Chronos-T5 masks missing values (#93) through the encode graph's `key_bias` input (`encoder.key_bias`) and gives the cross-attention only the observed
+  encoder rows; the fused `Attention` op's f32 mask combines with `position_bias` / ALiBi on GPU (kernels `main` / `fa`), not with causal or a window.
 - LLM architecture bring-up: tiny remote-code checkpoints come from `tests/Sharplight.Families.Tests/tools/mk_tiny_remote_code.py`
   (references: `hf_greedy_reference.py`); architectures llama.cpp added after the 8ca5a80 pin go in `LlamaCppAdditionsFamilyCases.cs`
   and docs/model-support.md section 26. A CPU-only build of llama.cpp HEAD (`cmake -B build -DGGML_CUDA=OFF`, target
@@ -88,6 +90,10 @@ prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` 
   dynamically indexed one into every thread's local memory, and at 16 KB per thread (T5-large's position-bias table) that
   corrupted other models' memory and lost the device (#88). Pass them as `const:` buffers (`NewBuffer(BufferKind.Weight, "const:…", init:)`).
   `SHARPLIGHT_VK_PIPELINE_STATS=1` shows each pipeline's "Local Memory Size" (the NVIDIA driver reports it plus 2^36).
+- 16-bit recurrent states (`AdapterOptions.RecurrentStateType`, `--reduced-precision` → bf16): `GatedDeltaRule`, `SelectiveScan` and
+  `Wkv6/7` keep f32 math and round the state after every token (`state16.slang` on the GPU, `RecurrentState16` on the CPU; the
+  chunked delta rule after every 64-row chunk, #11). Keep that rule in new recurrence kernels: it makes outputs independent of how
+  rows are batched, which speculative verification and prefix-cache snapshots rely on.
 - Output buffers come from a reused arena: a GPU kernel that leaves part of its output unwritten gives a right first run and drifting later
   runs (#111, rank-3 `Gather` tables; now gathered as `[V, prod(rest)]` rows). Tests for such ops should run two steps with different inputs.
 - Sharplight.Vulkan.Tests also runs on the CUDA provider with `SHARPLIGHT_TEST_PROVIDER=cuda` (same lowering, NVRTC).

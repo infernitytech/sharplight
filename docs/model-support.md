@@ -3699,8 +3699,11 @@ mean-scales, quantizes into 4093 bins (`torch.bucketize` semantics), samples eve
 suppressed) and maps tokens back to the bin centers; longer horizons continue from the median path (`torch.median`: the lower middle
 sample). Sampled paths are not comparable with torch's RNG, so the parity cases decode greedily; seeded sampling is reproducible.
 
-Deviation: missing values inside a Chronos context become padding tokens that stay visible to the attention (the reference masks them; the
-encoder graph has no key mask); leading missing values are dropped, which is exact. Chronos-Bolt handles missing values exactly.
+Missing values: leading ones are dropped, which is exact. Missing values inside the context become padding tokens that the encoder masks like the
+reference's `attention_mask` (#93): `encoder.key_bias` gives the encode graph an f32 key-bias input [T] (0 observed, -1e9 missing; the fused Attention op adds
+it next to T5's position bias, so masked rows keep their positions), and the host passes the decoder's cross-attention only the encoder rows of observed
+values, which is exact. The `gaps` case matches greedily like the others. Chronos graphs stored in `.slm` files before #93 have no key-bias input; their
+padding tokens stay visible to the encoder. Chronos-Bolt handles missing values exactly.
 
 Not done: batching several series in one pass, an HTTP forecasting endpoint (TimesFM is section 28, Moirai section 29, Chronos-2 with multivariate
 series and covariates section 30).

@@ -85,8 +85,7 @@ internal sealed unsafe class GatedDeltaRuleOp : CpuOp
         }
 
         _gWidth = _channelDecay ? _dk : 1;
-        _stateBytes = state.Type == DataType.F32 ? 4 : state.Type == DataType.BF16 || state.Type == DataType.F16 ? 2
-            : throw new ArgumentException($"GatedDeltaRule: unsupported state type {state.Type}.");
+        _stateBytes = RecurrentState16.ElementBytes(state.Type, "GatedDeltaRule");
         _bf16 = state.Type == DataType.BF16;
         _body = Body;
     }
@@ -258,37 +257,13 @@ internal sealed unsafe class GatedDeltaRuleOp : CpuOp
         }
     }
 
-    private void Widen(ushort* src, float* dst, long n)
-    {
-        if (_bf16)
-        {
-            Simd.BFloatToFloat(src, dst, n);
-        }
-        else
-        {
-            Simd.HalfToFloat(src, dst, n);
-        }
-    }
+    private void Widen(ushort* src, float* dst, long n) => RecurrentState16.Widen(src, dst, n, _bf16);
 
     /// <summary>Stores rows already rounded to the 16-bit state type (exact).</summary>
-    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private void Narrow(float* src, ushort* dst, long n)
-    {
-        for (long i = 0; i < n; i++)
-        {
-            dst[i] = _bf16 ? (ushort)(BitConverter.SingleToUInt32Bits(src[i]) >> 16) : Simd.FloatToHalf(src[i]);
-        }
-    }
+    private void Narrow(float* src, ushort* dst, long n) => RecurrentState16.Narrow(src, dst, n, _bf16);
 
     /// <summary>Rounds a row to the 16-bit state type's precision (round to nearest even), keeping it in f32.</summary>
-    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private void Round(float* row)
-    {
-        for (long i = 0; i < _dk; i++)
-        {
-            row[i] = _bf16 ? Simd.BFloatToFloat(Simd.FloatToBFloat(row[i])) : Simd.HalfToFloat(Simd.FloatToHalf(row[i]));
-        }
-    }
+    private void Round(float* row) => RecurrentState16.Round(row, _dk, _bf16);
 
     /// <summary>exp of the log decay: the scalar factor, or (per-channel decay) 1 with the DK factors written to <paramref name="decays"/>.</summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]

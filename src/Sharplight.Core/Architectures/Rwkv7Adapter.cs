@@ -54,7 +54,7 @@ public sealed class Rwkv7Adapter : IModelAdapter
             string g = $"layers.{il}";
             timeShift[il] = shift.DefineState($"{g}.time_shift", g);
             channelShift[il] = swiglu ? null : shift.DefineState($"{g}.channel_shift", g);
-            wkvState[il] = new StateDefinition { Name = $"{g}.wkv_state", Type = DataType.F32, Shape = new Shape(heads, headSize, headSize), Kind = StateKind.Recurrent, Group = g };
+            wkvState[il] = new StateDefinition { Name = $"{g}.wkv_state", Type = options.RecurrentStateType, Shape = new Shape(heads, headSize, headSize), Kind = StateKind.Recurrent, Group = g };
             states.AddRange(swiglu ? [timeShift[il], wkvState[il]] : [timeShift[il], channelShift[il]!, wkvState[il]]);
         }
 

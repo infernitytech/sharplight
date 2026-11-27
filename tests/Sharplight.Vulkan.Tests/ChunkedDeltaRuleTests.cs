@@ -11,8 +11,8 @@ namespace Sharplight.Vulkan.Tests;
 /// handed back and forth between the two; single and multi-sequence (runs of both kinds in one step, a slot that starts
 /// over). q and k are L2-normalized, as in every model using the op, either inside the graph (absorbed into the kernels) or
 /// beforehand. <c>reduced</c> selects the one-product f16 form (reduced precision), otherwise the two-part split. A 16-bit
-/// state (<c>stateType</c>) is rounded once per run by the chunked form but after every row by the oracle and the token-by-token
-/// kernel, hence the wider tolerance. The graphs
+/// state (<c>stateType</c>) is rounded after every 64-row chunk by the chunked form but after every row by the oracle and the
+/// token-by-token kernel, hence the wider tolerance. The graphs
 /// also carry the causal conv1d that precedes the op in the models, so its token-parallel prefill form (and the state
 /// hand-over to the per-channel walk of short batches) is checked on the same batches.
 /// </summary>
@@ -107,6 +107,48 @@ public sealed class ChunkedDeltaRuleTests
         var (atol, rtol) = Tolerance(reduced, stateType);
         Diff.Check("GatedDeltaRule.chunked.multi", g, steps, atol: atol, rtol: rtol, maxTokens: 256,
             what: $"Hk={hk} Hv={hv} Dk={dk} Dv={dv} reduced={reduced} state={stateType}", allowReducedPrecision: reduced);
+    }
+
+    /// <summary>
+    /// Prefill passes cut at chunk ends (multiples of 64 rows) give exactly the outputs of one pass: the chunked form rounds a 16-bit
+    /// state after every chunk, so a pass that ends there stores the state the longer pass continues from (an f32 state is exact
+    /// anyway). The same holds for a state kept at a chunk end and restored (prefix caching).
+    /// </summary>
+    [Theory]
+    [InlineData("f32")]
+    [InlineData("bf16")]
+    [InlineData("f16")]
+    public void PassesCutAtChunkEndsMatchOnePass(string stateType)
+    {
+        Gpu.Require();
+        const int Hk = 1, Hv = 3, Dk = 128, Dv = 128, Rows = 256;
+        var (tg, inputs) = Build(Hk, Hv, Dk, Dv, normInGraph: true, DataType.Get(stateType));
+        var g = tg.B.Build();
+        var all = Inputs(inputs, Rows, Hk, Hv, Dk, Dv, normInGraph: true, decay: 0.1f, seed: 7);
+        float[] Outputs(int[] passes)
+        {
+            var steps = new List<Step>();
+            int r0 = 0;
+            foreach (int n in passes)
+            {
+                steps.Add(new Step(n, 0, [.. all.Select(x => (x.V, (Array)Slice(x.Data, r0, n)))]));
+                r0 += n;
+            }
+
+            // Per step the outputs are o [n, Hv, Dv] followed by the conv1d's; keep o.
+            return [.. Diff.RunVulkan(g, steps, maxTokens: Rows).Zip(passes).SelectMany(x => x.First.Take(x.Second * Hv * Dv))];
+        }
+
+        float[] Slice(Array data, int r0, int n)
+        {
+            var x = (float[])data;
+            int width = x.Length / Rows;
+            return x[(r0 * width)..((r0 + n) * width)];
+        }
+
+        var whole = Outputs([Rows]);
+        Assert.Equal(whole, Outputs([64, 128, 64]));
+        Assert.Equal(whole, Outputs([192, 64]));
     }
 
     /// <summary>Tolerance against the oracle: the product precision, or the state rounding of a 16-bit state, whichever is wider.</summary>

@@ -7,8 +7,8 @@ using Sharplight.Vulkan;
 namespace Sharplight.Families.Tests;
 
 /// <summary>
-/// The gated delta rule's state in 16 bits (<see cref="LlmLoadOptions.RecurrentStateType"/> bf16 and f16) against the f32 state on a
-/// Qwen3.5-style hybrid model on Vulkan: a fixed text is teacher-forced (one 64-token prefill chunk, then one token per step, the
+/// A recurrent state in 16 bits (<see cref="LlmLoadOptions.RecurrentStateType"/> bf16 and f16) against the f32 state on Vulkan: the
+/// gated delta rule's on a Qwen3.5-style hybrid, the selective scan's on a Mamba-2 hybrid and the Wkv7 state on RWKV-7: a fixed text is teacher-forced (one 64-token prefill chunk, then one token per step, the
 /// decode path whose state traffic the 16-bit state halves) and every step's logits are compared with the f32 run: top-1 token
 /// (or a token within <see cref="NearTie"/> of the f32 logit spread), mean KL divergence of the softmax and the largest logit
 /// difference relative to the spread. Large: runs with <c>SHARPLIGHT_TEST_LARGE=1</c> when the file is present.
@@ -37,6 +37,11 @@ public class RecurrentStateAccuracyTests(ITestOutputHelper output)
     {
         { "hf-vllm/Qwen3.8-27B-FP8", "bf16", 0.95 },
         { "hf-vllm/Qwen3.8-27B-FP8", "f16", 0.95 },
+        // The selective scan's state (Mamba-2 layers of a hybrid, #11).
+        { "hf/granite-4.0-h-350m", "bf16", 0.95 },
+        { "hf/granite-4.0-h-350m", "f16", 0.95 },
+        // The Wkv7 state (RWKV-7).
+        { "gguf/rwkv7-g1h-1.5b/rwkv7-g1h-1.5b-20260710-ctx10240.i1-Q4_K_M.gguf", "bf16", 0.95 },
     };
 
     [Theory]

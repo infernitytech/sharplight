@@ -10,7 +10,7 @@ namespace Sharplight.Architectures;
 /// </summary>
 /// <remarks>
 /// Hyper-parameters (<c>chronos.*</c>): the keys of <see cref="EncoderDecoderAdapter"/> (with <c>cross_attention.cached</c>, <c>encoder.rows</c> = the context
-/// plus the end token and <c>encoder.variable_rows</c>), plus <c>forecast.context_length</c>, <c>forecast.prediction_length</c>, <c>forecast.tokens</c> (vocabulary),
+/// plus the end token, <c>encoder.variable_rows</c> and <c>encoder.key_bias</c>), plus <c>forecast.context_length</c>, <c>forecast.prediction_length</c>, <c>forecast.tokens</c> (vocabulary),
 /// <c>forecast.special_tokens</c>, <c>forecast.pad_token</c>, <c>forecast.end_token</c> (-1: none), <c>forecast.low_limit</c>, <c>forecast.high_limit</c> (the outer bin
 /// centers), <c>forecast.sample_count</c>, <c>forecast.temperature</c> and <c>forecast.top_k</c> (sampling defaults). Weights: those of <see cref="EncoderDecoderAdapter"/>.
 /// </remarks>

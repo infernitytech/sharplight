@@ -32,9 +32,10 @@ public sealed class AdapterOptions
     public bool OptimizeGraphs { get; set; } = true;
 
     /// <summary>
-    /// Element type of the recurrent state matrices of ops that can keep their state in 16 bits (currently the gated delta rule):
-    /// f32 (default), or bf16 / f16, which halve the state memory and its traffic in decode at reduced precision (the ops still
-    /// compute in f32 and round the state after every token row). States of other ops stay f32.
+    /// Element type of the recurrent state matrices of the ops that can keep their state in 16 bits (the gated delta rule, the
+    /// selective scan of Mamba-1 / Mamba-2 / PLaMo-2 layers and the RWKV-6 / RWKV-7 recurrences): f32 (default), or bf16 / f16,
+    /// which halve the state memory and its traffic in decode at reduced precision (the ops still compute in f32 and round the
+    /// state after every token row). Convolution windows and other states stay f32.
     /// </summary>
     public Tensors.DataType RecurrentStateType { get; set; } = Tensors.DataType.F32;
 

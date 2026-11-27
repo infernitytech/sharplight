@@ -292,10 +292,11 @@ public sealed partial class GraphLowerer
             return OpSupport.No("Attention: the batched form needs sequence_keys > 0 and no spans, causal mask, window or position bias");
         }
 
-        bool scoreTerms = causal || node.Attributes.Has("alibi_slopes") || node.Attributes.Has("position_bias") || node.Attributes.Get("window", 0) > 0;
-        if (mask && scoreTerms)
+        // Distance biases (ALiBi, T5's position bias) and an f32 mask add up in the kernels that serve biased attention (main, fa; the encoder
+        // flash kernels take no distance biases), e.g. Chronos' key mask of missing values (#93); causal and window limits do not combine with a mask.
+        if (mask && (causal || node.Attributes.Get("window", 0) > 0))
         {
-            return OpSupport.No("Attention: an f32 mask cannot be combined with causal, window or position biases");
+            return OpSupport.No("Attention: an f32 mask cannot be combined with causal attention or a window");
         }
 
         if (inputs[1].Shape[1] != inputs[2].Shape[1])
