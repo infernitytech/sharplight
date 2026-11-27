@@ -21,6 +21,7 @@ internal static class HfArchitectureMappings
         Register(new CogVlmHfMapping());
         Register(new NemotronHHfMapping());
         Register(new GraniteHybridHfMapping());
+        Register(new ZayaHfMapping());
         Register(new FalconH1HfMapping());
         Register(new InklingHfMapping());
         Register(new Inkling2HfMapping());

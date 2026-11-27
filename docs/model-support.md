@@ -3632,7 +3632,7 @@ References for this round come from a CPU build of that HEAD (`cmake -B build -D
 | inkling2_loop | 29b52d398 (2026-11-20) | supported since section 25 | - |
 | inkling2 | 5c008e000 (2026-11-15) | partial: mapping and per-expert output scales | #85 |
 | hy_v4_flash | c94333133 (2026-11-25) | missing | #83 |
-| zaya1 | 98d67c8d5 (2026-11-18) | missing | #82 |
+| zaya1 | 98d67c8d5 (2026-11-18) | supported, verified on ZAYA1-8B | #82 |
 | raon1 | 5a09582d8 (2026-11-25) | missing | #84 |
 | kokoro, zonos3, tiny-voca | 307e3f155, 7ae3c6b23, 3574df84b | TTS, speech workstream | #16 |
 | moshi | c622f623f (2026-11-21) | speech-to-speech | #21 |
@@ -3656,7 +3656,35 @@ pre-tokenizer `domyn-edge` is Qwen2's.
   degenerate into repetitions in every runtime, transformers included ("The capital of France is" → " is is is is mus mus ..."); the
   catalog note says to use the chat template.
 
-Not done this round: the architectures of the table above other than Domyn Edge (issues listed), the `domyn-small` pre-tokenizer (escaped
+**ZAYA1** (`zaya1`, transformers `zaya` / `ZayaForCausalLM`, Zyphra/ZAYA1-8B: 40 layers, hidden 2048, 8 query and 2 key/value heads of 128,
+16 experts of 2048 plus a skip expert, top-1). It maps onto the canonical `hybrid` stack (`ZayaHfMapping`, `Zaya1GgufMapping`) with two new
+pieces: `CcaAttention`, compressed convolutional attention (the raw q/k rows go through a depthwise and then a grouped causal convolution of
+kernel 2, the grouped one as an expert-indexed product with one [head, 2·head] matrix per group; residual paths q_res = (q + k)/2 and
+k_res = mean of q_res over the query heads of a key head; q/k L2-normalized to sqrt(head_dim), keys times a per-head temperature, rope on half
+of each head; values = [current half, previous row's delayed half]) and `SkipExpertRouter` (router projection + bias, plus the previous layer's
+router rows times a scale, RMS norm, two GELU layers, softmax over the experts and the skip class; top-1 among the real experts by the biased
+probabilities, zero output when the skip class scores higher). Residuals use per-channel scales and a folded bias, the input rows
+`(x + b) · s`. The three one-row windows of a CCA layer (raw q/k, depthwise output without its bias, delayed values) are `CausalConv1d`
+states, so batching, snapshots and speculative rollback cover them like any convolution state. The skip expert never wins in the published
+model: its class bias is -1 (transformers even resets it to -1 on load) and probabilities lie in [0, 1].
+
+- Tiny checkpoint (`tools/mk_tiny_zaya1.py`, 6 layers, 4 experts, router MLP weights with std 1 for decisive top-1 choices; smallest greedy
+  margin 0.087): prompt logits and 24 greedy ids identical to transformers 5.24 on CPU, Vulkan and CUDA, HF and the converted f32 GGUF;
+  llama.cpp b12798's `llama-simple` gives the same text from that GGUF. KV caches are kept in f32 for these cases: f16 rounding flips a
+  router near-tie on the CPU. A variant with the skip expert's class bias 0 (`TINY_SKIP_BIAS=0`, GGUF only, since only llama.cpp honours the
+  stored bias) matches llama.cpp's text, which leaves the plain model's after 12 tokens. Batched decoding equals single-sequence decoding
+  (`HubSweepFamilyServingTests`), rolled-back and snapshotted states equal plain decoding (`RecurrentRollbackTests`, `StepStateSnapshotTests`).
+  The tokenizer's post-processor appends `<|im_end|>` to every plain encode (transformers and Sharplight do; the converted GGUF says
+  `add_eos_token`), which `llama-completion` refuses; chat prompts are unaffected (the template starts with `<bos>`, nothing is added).
+- Zyphra/ZAYA1-8B (67d34da): the chat answer to "Explain in a short paragraph why the sky is blue." (template defaults, thinking on, greedy,
+  160 tokens). Float32 transformers has two 0.003-logit near ties, at token 36 (" how" / " the") and token 98 (" light" / " and"). The BF16
+  GGUF on the CPU gives exactly llama.cpp b12798's (CPU) tokens for about 140 tokens (both take " how", then " and"), the BF16 safetensors and
+  GGUF on Vulkan and CUDA are identical to them up to the first tie and take " the" there. Q8_0 (own conversion with `llama-quantize`):
+  Vulkan identical to llama.cpp's Q8_0 for 31 tokens, then " about" where llama.cpp takes " to" (0.12 apart in float32 transformers).
+  The community GGUFs (Abiray/ZAYA1-8B-GGUF, JusteLeo/ZAYA1-8B-GGUF, May 2026) were written by a pre-mainline fork (`general.architecture`
+  `zaya`, 80 blocks) and do not load (#120).
+
+Not done this round: the architectures of the table above other than Domyn Edge and ZAYA1 (issues listed), the `domyn-small` pre-tokenizer (escaped
 whitespace, llama.cpp `LLAMA_VOCAB_PRE_TYPE_DOMYN_SMALL`; no Domyn Small checkpoint was run) and the mmproj projectors of section 7 (#86, #87).
 
 

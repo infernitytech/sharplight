@@ -13,6 +13,7 @@ internal static class GgufArchitectureMappings
         Register(new Qwen3VlGgufMapping());
         Register(new NemotronHGgufMapping());
         Register(new HybridGgufMapping());
+        Register(new Zaya1GgufMapping());
         Register(new Metis16GgufMapping());
         Register(new MiniMax01GgufMapping());
         Register(new InklingGgufMapping());
