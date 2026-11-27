@@ -119,15 +119,19 @@ public sealed class MatMulTests
     }
 
     /// <summary>
-    /// A batch whose shared tiles fill at least a wave (300 rows of 5,120 outputs: 100 64 x 256 tiles) runs the CUDA provider's f16 GEMM
-    /// stream-K with each cut tile continued from the previous block's accumulators: its outputs equal bit for bit those of the same rows
-    /// in a batch of 2,100 rows, which walks tile by tile (every tile configuration sums K in the same order).
+    /// A batch whose shared tiles fill at least a wave (300 rows of 256 outputs per fifth of the SMs plus 768: 64 x 256 tiles, 95 on the
+    /// RTX PRO 4500's 82 SMs, 200 on the RTX PRO 6000's 188; the lowering's estimate takes stream-K on them for 46-200 SMs) runs the
+    /// CUDA provider's f16 GEMM stream-K with each cut tile continued from the previous block's accumulators: its outputs equal bit for
+    /// bit those of the same rows in a batch of 2,100 rows, which walks tile by tile (every tile configuration sums K in the same order).
+    /// With fewer shared tiles than blocks (a fixed 5,120 outputs on the RTX PRO 6000, #81) the kernel adds the blocks' partial sums
+    /// instead, a different rounding.
     /// </summary>
     [Fact]
     public void StreamKMatchesTileWalkBitwise()
     {
         Gpu.RequireCuda();
-        var (part, whole) = RunPrefix("bf16", 300, 2100, 5120, 2880);
+        int n = 256 * (Gpu.ComputeUnits > 0 ? Gpu.ComputeUnits / 5 + 3 : 20);
+        var (part, whole) = RunPrefix("bf16", 300, 2100, n, 2880);
         Assert.Equal(whole, part);
     }
 

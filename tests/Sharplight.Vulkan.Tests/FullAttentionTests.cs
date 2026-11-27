@@ -76,6 +76,23 @@ public sealed class FullAttentionTests
         Diff.Check("Attention.mask", g, step, atol: 5e-6, rtol: 5e-6, maxTokens: batch * rows, what: $"b={batch} rows={rows} mask={mask}");
     }
 
+    /// <summary>
+    /// A key-padding bias together with T5's relative position bias (the Chronos encoder's mask of missing values, #93), on the scalar and flash
+    /// kernels and without matrix units.
+    /// </summary>
+    [Theory]
+    [InlineData(3, false)]
+    [InlineData(40, false)]
+    [InlineData(300, false)]
+    [InlineData(40, true)]
+    public void MaskWithPositionBias(int rows, bool withoutMatrixUnits)
+    {
+        var (g, step) = Graph(1, rows, rows, 4, 64, mask: 1, seed: 13, magnitude: 1f, positionBiasRange: 16);
+        Diff.Check("Attention.mask-position-bias", g, step, atol: 5e-6, rtol: 5e-6, maxTokens: rows,
+            disabledFeatures: withoutMatrixUnits ? new HashSet<string> { DeviceFeatures.MatrixF16, DeviceFeatures.MatrixWorkgroup } : null,
+            what: $"rows={rows} withoutMatrixUnits={withoutMatrixUnits}");
+    }
+
     /// <summary>Queries and keys of different lengths per sequence (cross-attention within each batch entry).</summary>
     [Theory]
     [InlineData(2, 5, 9)]
@@ -108,21 +125,28 @@ public sealed class FullAttentionTests
 
     /// <summary>
     /// An Attention graph over <paramref name="batch"/> sequences of <paramref name="rows"/> queries and <paramref name="keys"/> keys;
-    /// mask 1 = one bias per key row (every third key masked), 2 = a per-query [rows, keys] mask (batch 1).
+    /// mask 1 = one bias per key row (every third key masked), 2 = a per-query [rows, keys] mask (batch 1); <paramref name="positionBiasRange"/> &gt; 0 adds a
+    /// relative position bias over the distances ±range (self-attention, batch 1).
     /// </summary>
     private static (ComputeGraph Graph, Step Step) Graph(int batch, int rows, int keys, int heads, int d, int mask, int seed, float magnitude,
-        float? kMagnitude = null, float vMagnitude = 1f, long window = 0)
+        float? kMagnitude = null, float vMagnitude = 1f, long window = 0, int positionBiasRange = 0)
     {
         var tg = new TG();
         var q = tg.InF("q", TG.T, heads, d);
-        // A window needs self-attention: keys share the queries' row symbol.
-        var keyRows = window > 0 ? TG.T : Dim.Of((long)batch * keys);
+        // A window or a position bias needs self-attention: keys share the queries' row symbol.
+        var keyRows = window > 0 || positionBiasRange > 0 ? TG.T : Dim.Of((long)batch * keys);
         var k = tg.InF("k", keyRows, heads, d);
         var v = tg.InF("v", keyRows, heads, d);
         var attributes = new List<(string, object)> { ("scale", 1f / MathF.Sqrt(d)) };
         if (window > 0)
         {
             attributes.Add(("window", window));
+        }
+
+        if (positionBiasRange > 0)
+        {
+            attributes.Add(("position_bias", Rnd.F(heads * (2 * positionBiasRange + 1), seed + 3, 1f)));
+            attributes.Add(("position_bias_range", positionBiasRange));
         }
 
         if (batch > 1 || keys != rows)

@@ -24,6 +24,9 @@ public static class SharplightApiNames
     /// <summary>OpenAI <c>POST /v1/images/generations</c>.</summary>
     public const string OpenAiImagesGenerations = "openai.images.generations";
 
+    /// <summary>Sharplight <c>POST /v1/timeseries/forecast</c>.</summary>
+    public const string TimeSeriesForecast = "timeseries.forecast";
+
     /// <summary>Anthropic <c>POST /v1/messages</c>.</summary>
     public const string AnthropicMessages = "anthropic.messages";
 
@@ -49,6 +52,7 @@ public static class SharplightApiNames
         ("/v1/audio/transcriptions", OpenAiAudioTranscriptions),
         ("/v1/audio/translations", OpenAiAudioTranslations),
         ("/v1/images/generations", OpenAiImagesGenerations),
+        ("/v1/timeseries/forecast", TimeSeriesForecast),
         ("/rerank", Rerank),
         ("/v1/models/{id}", ModelsGet),
         ("/v1/models", ModelsList),

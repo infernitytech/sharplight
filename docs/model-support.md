@@ -3671,8 +3671,11 @@ mean-scales, quantizes into 4093 bins (`torch.bucketize` semantics), samples eve
 suppressed) and maps tokens back to the bin centers; longer horizons continue from the median path (`torch.median`: the lower middle
 sample). Sampled paths are not comparable with torch's RNG, so the parity cases decode greedily; seeded sampling is reproducible.
 
-Deviation: missing values inside a Chronos context become padding tokens that stay visible to the attention (the reference masks them; the
-encoder graph has no key mask); leading missing values are dropped, which is exact. Chronos-Bolt handles missing values exactly.
+Missing values: leading ones are dropped, which is exact. Missing values inside the context become padding tokens that the encoder masks like the
+reference's `attention_mask` (#93): `encoder.key_bias` gives the encode graph an f32 key-bias input [T] (0 observed, -1e9 missing; the fused Attention op adds
+it next to T5's position bias, so masked rows keep their positions), and the host passes the decoder's cross-attention only the encoder rows of observed
+values, which is exact. The `gaps` case matches greedily like the others. Chronos graphs stored in `.slm` files before #93 have no key-bias input; their
+padding tokens stay visible to the encoder. Chronos-Bolt handles missing values exactly.
 
 Not done: batching several series in one pass, an HTTP forecasting endpoint (TimesFM is section 28, Moirai section 29, Chronos-2 with multivariate
 series and covariates section 30).
@@ -3797,5 +3800,23 @@ covariates) is extended by its forecast at each of the levels 0.1 … 0.9 (inter
 packed in one pass, and the next block is the weighted quantiles (`weighted_quantile`, trapezoid probability mass per level) of all 9 × 21 forecasts per
 step. Requested levels outside the native ones are interpolated as `interpolate_quantiles` (flat beyond 0.01 / 0.99); the point forecast is the median.
 
-Not done: categorical covariates, the pipeline's cross-learning mode (several requests as one group) and batching several requests in one pass (#92),
+Not done: categorical covariates, the pipeline's cross-learning mode (several requests as one group) and batching several requests in one pass (section 31 batches
+Chronos-Bolt only),
 Moirai's multivariate path (variate ids, the variate attention bias, covariate rows; see section 29), TimesFM's covariates.
+
+## 31. Time series: forecasting endpoint and batched Chronos-Bolt (2026-11-27, issue #92)
+
+HTTP: `POST /v1/timeseries/forecast` in Sharplight.AspNetCore (`TimeSeriesApi`, api-overview.md "Time series" has the request and response), mapped by
+`MapSharplightServer` when forecasters are registered (`AddSharplightTimeSeriesForecaster`) or the server serves the host's task models; `sharplight serve`
+serves them whenever a `task=` model is hosted (or `--on-demand`). The enterprise server does not map it (its endpoints serve chat, embedding and rerank only).
+
+Batching: `ITimeSeriesForecaster.ForecastBatchAsync(histories, options)` forecasts independent series of any lengths. Chronos-Bolt's `forecast` graph now has a
+symbolic series axis `S` on its inputs (`patches` [S, patches, 2p], `patch_mask` [S, patches]) and output ([S, levels, 64]): the encoder attention runs as
+[S, heads, rows, rows] batched products with the T5 position bias [heads, rows, rows] plus each series' key mask [S, 1, 1, rows]; the register and decoder-start
+rows broadcast over S. The client compiles for 9 series (the per-level context copies of one long-horizon series), grows the bound in powers of two up to 64
+contexts per pass and splits larger batches; a long horizon batches all series' copies. `.slm` packages converted before #92 keep the rank-2 graph and run
+one context per pass (detected from the input rank). Tests: the reference cases batched vs one by one (within 1e-5 of the range) and vs the reference;
+70 affine copies of a series (more than one pass) give the affine forecasts; the endpoint over fakes and over chronos-bolt-tiny hosted like `sharplight serve`.
+
+Not done (follow-ups): batched sample paths of the Chronos token client (one decoder sequence per path today), batching for TimesFM / Moirai / Chronos-2,
+the endpoint in the enterprise server.

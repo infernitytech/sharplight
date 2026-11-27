@@ -53,7 +53,8 @@ public static class SharplightServerExtensions
         /// <summary>
         /// Maps everything the options enable: <c>/health</c>, <c>/metrics</c>, the admin endpoints, the OpenAI and the Anthropic
         /// API, plus the retrieval endpoints of <see cref="RetrievalApi"/> when embedding / rerank models are registered and the audio
-        /// endpoints of <see cref="AudioApi"/> when speech recognizers are registered. The API endpoints run through the Sharplight
+        /// endpoints of <see cref="AudioApi"/> when speech recognizers are registered, and the forecasting endpoint of <see cref="TimeSeriesApi"/> when
+        /// forecasters are registered (or the host's models are served). The API endpoints run through the Sharplight
         /// request pipeline: authentication (<see cref="IApiKeyValidator"/>), per-request resolution (<see cref="IModelEndpointResolver"/>:
         /// models, defaults, tools, isolation scope), admission (<see cref="IRequestAdmission"/>), usage reporting
         /// (<see cref="ISharplightUsageObserver"/>, <see cref="SharplightServerMetrics"/>) and error mapping. Call it on a route group to
@@ -127,6 +128,11 @@ public static class SharplightServerExtensions
             {
                 api.MapSharplightAudio();
                 api.MapSharplightImages();
+            }
+
+            if (endpoint.TimeSeries)
+            {
+                api.MapSharplightTimeSeries();
             }
 
             return routes;

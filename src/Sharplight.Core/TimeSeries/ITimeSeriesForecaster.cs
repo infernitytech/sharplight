@@ -31,6 +31,30 @@ public interface ITimeSeriesForecaster : ITaskClient
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Forecasts several independent univariate series, one forecast per history (in their order); unlike the targets of a
+    /// <see cref="TimeSeriesForecastRequest"/>, the series need not be aligned or of the same length. Models with a batched graph (Chronos-Bolt) forecast the
+    /// series together, several per model pass; the others forecast one after another. Sampling models draw every series with the same
+    /// <see cref="TimeSeriesForecastOptions.Seed"/>.
+    /// </summary>
+    /// <param name="histories">The observations of every series, oldest first; <see cref="float.NaN"/> marks a missing value.</param>
+    /// <param name="options">Request settings shared by all series, or <see langword="null"/> for the defaults.</param>
+    /// <param name="cancellationToken">Stops the forecast between model passes.</param>
+    /// <returns>One forecast per history.</returns>
+    /// <exception cref="ArgumentException">There is no history, or a history is empty or has no observed value.</exception>
+    public async Task<IReadOnlyList<TimeSeriesForecast>> ForecastBatchAsync(IReadOnlyList<ReadOnlyMemory<float>> histories, TimeSeriesForecastOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        TimeSeriesHistory.Validate(histories);
+        var forecasts = new TimeSeriesForecast[histories.Count];
+        for (int i = 0; i < forecasts.Length; i++)
+        {
+            forecasts[i] = await ForecastAsync(histories[i], options, cancellationToken).ConfigureAwait(false);
+        }
+
+        return forecasts;
+    }
+
+    /// <summary>
     /// Whether the model forecasts the targets of a <see cref="TimeSeriesForecastRequest"/> jointly and uses its covariates (Chronos-2). When false,
     /// <see cref="ForecastAsync(TimeSeriesForecastRequest, TimeSeriesForecastOptions?, CancellationToken)"/> forecasts every target on its own and rejects covariates.
     /// </summary>

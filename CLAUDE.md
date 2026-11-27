@@ -45,6 +45,10 @@ prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` 
   Moirai 1.1 samples a mixture: parity is on the distribution parameters, sampled quantiles are compared in probability space.
   Chronos-2 (#91): `amazon/chronos-2`, references from `reference_chronos2.py` (chronos-forecasting >= 2.0; fedora-blackwell: `~/venvs/chronos2`);
   multivariate requests and covariates go through `ITimeSeriesForecaster.ForecastAsync(TimeSeriesForecastRequest)` (default implementation for univariate models).
+  HTTP (#92): `POST /v1/timeseries/forecast` (`TimeSeriesApi`, Sharplight.Serving.Tests `TimeSeriesApiTests` / `TimeSeriesRealTests`); independent series go through
+  `ForecastBatchAsync` — Chronos-Bolt's graph has a symbolic series axis `S` (old `.slm` files keep the rank-2 graph, one series per pass).
+  Chronos-T5 masks missing values (#93) through the encode graph's `key_bias` input (`encoder.key_bias`) and gives the cross-attention only the observed
+  encoder rows; the fused `Attention` op's f32 mask combines with `position_bias` / ALiBi on GPU (kernels `main` / `fa`), not with causal or a window.
 - LLM architecture bring-up: tiny remote-code checkpoints come from `tests/Sharplight.Families.Tests/tools/mk_tiny_remote_code.py`
   (references: `hf_greedy_reference.py`); architectures llama.cpp added after the 8ca5a80 pin go in `LlamaCppAdditionsFamilyCases.cs`
   and docs/model-support.md section 26. A CPU-only build of llama.cpp HEAD (`cmake -B build -DGGML_CUDA=OFF`, target
@@ -87,8 +91,8 @@ prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` 
   `Wkv6/7` keep f32 math and round the state after every token (`state16.slang` on the GPU, `RecurrentState16` on the CPU; the
   chunked delta rule after every 64-row chunk, #11). Keep that rule in new recurrence kernels: it makes outputs independent of how
   rows are batched, which speculative verification and prefix-cache snapshots rely on.
-- The Vulkan/CUDA `Gather` lowering only handles 2-D tables: a rank-3 table fills just the first `[.., last dim]` slice of every output row and
-  leaves the rest stale (#111); gather 2-D tensors (reshape first). Symptom: the first run of a compiled graph is right, later runs drift.
+- Output buffers come from a reused arena: a GPU kernel that leaves part of its output unwritten gives a right first run and drifting later
+  runs (#111, rank-3 `Gather` tables; now gathered as `[V, prod(rest)]` rows). Tests for such ops should run two steps with different inputs.
 - Sharplight.Vulkan.Tests also runs on the CUDA provider with `SHARPLIGHT_TEST_PROVIDER=cuda` (same lowering, NVRTC).
   Speculative (MTP) output equals plain decoding only while row-invariant compiles reproduce the plain single-row
   arithmetic bit for bit. Driver contraction differs per kernel variant and per compiler (NVIDIA Vulkan, RADV and NVRTC

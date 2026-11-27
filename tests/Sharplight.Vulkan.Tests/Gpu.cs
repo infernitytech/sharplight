@@ -53,6 +53,14 @@ internal static class Gpu
     /// <summary>The GPU under test, or null when unavailable.</summary>
     public static IComputeDevice? Device => s_gpu.Value.Dev;
 
+    /// <summary>
+    /// The compute units (SMs) the GPU under test reports (capability <c>compute_units</c>), or 0 when unknown: the lowering sizes
+    /// waves and stream-K launches by them.
+    /// </summary>
+    public static int ComputeUnits
+        => Device?.Info.Capabilities.TryGetValue("compute_units", out var text) is true && int.TryParse(text, System.Globalization.CultureInfo.InvariantCulture, out int units)
+            ? units : 0;
+
     public static void Require() => Assert.SkipUnless(Device is not null, $"No usable {TestSwitches.Provider} device: " + s_gpu.Value.Reason);
 
     /// <summary>Requires the Vulkan provider under test (tests of Vulkan internals: pipeline caches, profile devices, segment statistics).</summary>
